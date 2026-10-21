@@ -107,10 +107,11 @@ public partial class MainWindow : Window
         engine.FrameReady += OnFrame;
         engine.StatusChanged += status => Dispatcher.BeginInvoke(() =>
         {
-            ShowStatus(status);
+            ShowDisplayStatus(status);
             UpdateResolution(); // connecting or disconnecting changes what's known
         });
-        ShowStatus(note ?? engine.Status);
+        ShowDisplayStatus(engine.Status);
+        if (note != null) ShowStatus(note);
         ShowBanner();
         UpdateButtons();
         ShowDisplaySettings(plugins);
@@ -141,7 +142,32 @@ public partial class MainWindow : Window
         });
     }
 
-    private void ShowStatus(string status) => StatusText.Text = status;
+    private string _displayStatus = "";
+    private DispatcherTimer? _messageTimer;
+
+    /// <summary>The display's connection state: what the status line shows when there's no message.</summary>
+    private void ShowDisplayStatus(string status)
+    {
+        _displayStatus = status;
+        if (_messageTimer?.IsEnabled != true) StatusText.Text = status;
+    }
+
+    /// <summary>A message about something that just happened (import, export, an error); the display status comes back after 5 s.</summary>
+    private void ShowStatus(string message)
+    {
+        StatusText.Text = message;
+        if (_messageTimer == null)
+        {
+            _messageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+            _messageTimer.Tick += (_, _) =>
+            {
+                _messageTimer.Stop();
+                StatusText.Text = _displayStatus;
+            };
+        }
+        _messageTimer.Stop();
+        _messageTimer.Start();
+    }
 
     /// <summary>Shows an unexpected error in the status line (the app keeps running).</summary>
     public void ReportError(string message) => ShowStatus(message);
