@@ -3,6 +3,10 @@
 Live hardware sensor panels for small screens on Windows: CPU, GPU, memory, drive, fan and framerate readings, drawn on
 a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor to design the panel.
 
+<p align="center">
+  <img src="docs/panel.png" width="320" alt="A sensor panel showing CPU and GPU power, clocks, voltages, load gauges and graphs, fan speeds, memory use, memory and drive temperatures, framerate, drive space and the time">
+</p>
+
 - **Panel editor**: text, sensor values, bars that change colour at limits you set, round gauges, history graphs and
   pictures. Click to select, drag to move, arrow keys to nudge, undo/redo, and every setting in a properties panel. The
   preview is sharp at any size and the display updates as you edit.
@@ -32,12 +36,16 @@ Build the installer (see [Building](#building)) and run `SensorPanel-<version>-x
 - has a "Start SensorPanel when Windows starts" checkbox (upgrades keep the current choice);
 - closes a running SensorPanel before upgrading or uninstalling. Uninstalling keeps your panel and settings.
 
+Later versions can be installed from SensorPanel itself (**About** tab), or by running a newer MSI over the old one.
+
 ## Using SensorPanel
 
 ### Editor
 
 The **Editor** tab has the item list, the preview and the properties of the selected item (or of the panel when nothing
 is selected).
+
+![The Editor tab: the item list, the panel preview with live readings, and the panel's properties](docs/editor.png)
 
 - **Add item** (＋): text, sensor value, sensor with bar, gauge, graph or image.
 - Click an item in the preview or the list to select it; drag to move it; arrow keys nudge it (Shift: 10 px). Click
@@ -52,11 +60,27 @@ Changes save automatically to `%APPDATA%\SensorPanel` and show on the display st
 
 ### Settings
 
+![The Settings tab: display type and resolution, display plugins, panel import and export, and general options](docs/settings.png)
+
 - **Display**: the display type and its settings; the detected resolution is filled in where it can be read.
 - **Display plugins**: what's installed, and a button to open the plugins folder.
 - **Panel file**: **Import…** opens a SensorPanel panel (`.sensorpanel`), an LCD backup (`.axlcd`) or an LCD settings
   file (`.ini`); **Export…** saves the panel and its pictures in one `.sensorpanel` file.
 - **General**: show on display, start with Windows, show tray icon, exit.
+
+### About
+
+![The About tab: version, updates and the projects SensorPanel is built with](docs/about.png)
+
+The version, a link to this repository, and **updates**:
+
+- SensorPanel checks GitHub for a newer release about 20 seconds after it starts (turn off **Check for updates
+  automatically** to stop this), or when you click **Check for updates**.
+- When one is available, the About tab gets a dot and shows **Download and install** with a link to what's new. While
+  the window is closed, a notification says so (also when the tray icon is hidden); clicking it opens the About tab.
+- The installer is checked against the release's SHA-256 checksum, runs with only a progress bar (no prompt, as
+  SensorPanel already has administrator rights), and SensorPanel restarts on the new version with your panel and
+  settings kept.
 
 Closing the window keeps SensorPanel running. With the tray icon hidden, start SensorPanel again from the Start menu
 to open the window.
@@ -141,6 +165,7 @@ Requires the .NET 10 SDK.
 | `Plugins\Ax206\`, `Plugins\ImageFile\` | Display plugins |
 | `Ax206Tool\` | AX206 command-line test tool |
 | `Installer\` | WiX installer |
+| `docs\` | Screenshots for this README |
 
 ## Credits
 

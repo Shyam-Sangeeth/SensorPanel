@@ -7,6 +7,7 @@ public sealed class AppSettings
 {
     public bool OutputEnabled { get; set; } = true;
     public bool ShowTrayIcon { get; set; } = true;
+    public bool CheckForUpdates { get; set; } = true;
 
     /// <summary>The chosen display type (a driver's ID; "ax206" is built in).</summary>
     public string DisplayType { get; set; } = "ax206";

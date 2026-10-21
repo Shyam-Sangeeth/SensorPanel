@@ -97,6 +97,10 @@ public partial class MainWindow : Window
         StartupBox.IsChecked = SensorHub.IsAdministrator && StartupTask.IsEnabled;
         StartupBox.IsEnabled = SensorHub.IsAdministrator;
         if (!SensorHub.IsAdministrator) StartupBox.ToolTip = "Needs administrator rights (restart SensorPanel as administrator).";
+        AutoUpdateBox.IsChecked = settings.CheckForUpdates;
+        VersionText.Text = $"SensorPanel {UpdateService.CurrentVersion}";
+        RepositoryLink.NavigateUri = new Uri(UpdateService.RepositoryUrl);
+        UpdateStatusText.Text = $"You have SensorPanel {UpdateService.CurrentVersion}.";
 
         _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
         _saveTimer.Tick += (_, _) => Save();
@@ -717,6 +721,96 @@ public partial class MainWindow : Window
         {
             MessageBox.Show(this, "Couldn't change Start with Windows: " + ex.Message, "SensorPanel");
         }
+    }
+
+    // ---- about and updates ---------------------------------------------------------------------------------
+
+    private UpdateInfo? _update;
+    private bool _updateBusy;
+
+    /// <summary>Raised when a check finds a newer release (the app shows a tray notification while the window is closed).</summary>
+    public event Action<UpdateInfo>? UpdateFound;
+
+    public void ShowAbout() => Tabs.SelectedItem = AboutTab;
+
+    /// <summary>Checks GitHub for a newer release. <paramref name="quiet"/> keeps error messages short (automatic checks).</summary>
+    public async Task CheckForUpdatesAsync(bool quiet)
+    {
+        if (_updateBusy) return;
+        SetUpdateBusy(true);
+        UpdateStatusText.Text = "Checking for updates…";
+        try
+        {
+            _update = await UpdateService.CheckAsync();
+            UpdateStatusText.Text = _update == null
+                ? $"You're up to date (SensorPanel {UpdateService.CurrentVersion})."
+                : $"SensorPanel {_update.Version} is available (you have {UpdateService.CurrentVersion}).";
+            if (_update != null) UpdateFound?.Invoke(_update);
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = quiet ? "Couldn't check for updates." : $"Couldn't check for updates: {ex.Message}";
+        }
+        finally
+        {
+            SetUpdateBusy(false);
+        }
+    }
+
+    private void SetUpdateBusy(bool busy, bool downloading = false)
+    {
+        _updateBusy = busy;
+        CheckUpdatesButton.IsEnabled = !busy;
+        InstallUpdateButton.IsEnabled = !busy;
+        var available = _update != null ? Visibility.Visible : Visibility.Collapsed;
+        InstallUpdateButton.Visibility = available;
+        WhatsNew.Visibility = available;
+        UpdateDot.Visibility = available;
+        if (_update != null)
+        {
+            InstallUpdateButton.Content = $"Download and install {_update.Version}";
+            WhatsNewLink.NavigateUri = new Uri(_update.PageUrl);
+        }
+        UpdateProgress.Visibility = downloading ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(quiet: false);
+
+    /// <summary>Downloads and verifies the installer, starts it, then exits so it can replace SensorPanel's files.</summary>
+    private async void InstallUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_update == null || _updateBusy) return;
+        SetUpdateBusy(true, downloading: true);
+        UpdateProgress.Value = 0;
+        UpdateStatusText.Text = $"Downloading SensorPanel {_update.Version}…";
+        try
+        {
+            string installer = await UpdateService.DownloadAsync(_update, new Progress<double>(p => UpdateProgress.Value = p * 100));
+            UpdateStatusText.Text = "Installing… SensorPanel will restart when it's done.";
+            UpdateService.RunInstaller(installer);
+            await Task.Delay(1500);
+            ((App)Application.Current).ExitFromSettings();
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText.Text = $"Update failed: {ex.Message}";
+            SetUpdateBusy(false);
+        }
+    }
+
+    private void AutoUpdateBox_Changed(object sender, RoutedEventArgs e)
+    {
+        bool on = AutoUpdateBox.IsChecked == true;
+        if (_settings.CheckForUpdates == on) return;
+        _settings.CheckForUpdates = on;
+        _store.SaveSettings(_settings);
+    }
+
+    private void Link_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true }); }
+        catch (Exception ex) { ShowStatus($"Couldn't open the link: {ex.Message}"); }
+        e.Handled = true;
     }
 
     // ---- preview: select, drag, nudge ----------------------------------------------------------------------

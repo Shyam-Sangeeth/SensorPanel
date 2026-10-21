@@ -134,6 +134,50 @@ public partial class App : Application
 
         CreateTray();
         if (!e.Args.Contains("--minimized")) ShowWindow();
+        CheckForUpdatesLater();
+    }
+
+    /// <summary>
+    /// If enabled, checks GitHub for a newer release once, a little after startup (so it doesn't slow down sign-in). While
+    /// the window is closed, a notification says so (even with the tray icon hidden); clicking it opens the About tab.
+    /// </summary>
+    private async void CheckForUpdatesLater()
+    {
+        if (_window == null || _settings is not { CheckForUpdates: true }) return;
+        await Task.Delay(TimeSpan.FromSeconds(20));
+        if (_exiting) return;
+        _window.UpdateFound += update =>
+        {
+            if (_window.IsVisible || _tray == null) return; // the About tab already shows it
+            ShowNotification($"SensorPanel {update.Version} is available", "Click to open SensorPanel and update.");
+        };
+        await _window.CheckForUpdatesAsync(quiet: true);
+    }
+
+    private bool _trayShownForNotification;
+
+    /// <summary>
+    /// Shows a notification from the tray icon. Windows needs the icon for that, so a hidden one is shown just for the
+    /// notification and hidden again when it's clicked or goes away.
+    /// </summary>
+    private async void ShowNotification(string title, string text)
+    {
+        if (_tray == null) return;
+        if (!_tray.Visible)
+        {
+            _trayShownForNotification = true;
+            _tray.Visible = true;
+        }
+        _tray.ShowBalloonTip(5000, title, text, Forms.ToolTipIcon.None);
+        await Task.Delay(TimeSpan.FromSeconds(30)); // in case Windows doesn't report it closing
+        HideTrayAfterNotification();
+    }
+
+    private void HideTrayAfterNotification()
+    {
+        if (!_trayShownForNotification || _tray == null || _exiting) return;
+        _trayShownForNotification = false;
+        _tray.Visible = _settings!.ShowTrayIcon;
     }
 
     private void CreateTray()
@@ -159,6 +203,13 @@ public partial class App : Application
             Visible = _settings.ShowTrayIcon,
         };
         _tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) ShowWindow(); };
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            HideTrayAfterNotification();
+            ShowWindow();
+            _window?.ShowAbout();
+        };
+        _tray.BalloonTipClosed += (_, _) => HideTrayAfterNotification();
     }
 
     /// <summary>Shows or hides the tray icon (Settings). Without it, the window comes back by starting SensorPanel again.</summary>

@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>1.0.0</Version>
+    <!-- The contract's own version, kept when SensorPanel is built with a different -p:Version (the installer does
+         this): plugins built against 1.0.0.0 can only load in a SensorPanel whose contract is at least that. -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
