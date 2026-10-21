@@ -1,0 +1,128 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!-- Installs SensorPanel for all users into Program Files (SensorPanel runs with administrator rights, so its program
+       and plugins live where only administrators can change them), with a Start menu shortcut and an entry in
+       Settings > Apps. The app is self-contained, so .NET doesn't need to be installed. -->
+  <Package Name="SensorPanel"
+           Manufacturer="Shyam Sangeeth"
+           Version="$(var.Version)"
+           UpgradeCode="036B9700-76A0-4727-BABC-EA9399E237BB"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="SensorPanel: live hardware sensor panels for small USB and HDMI displays" />
+
+    <!-- Installing a newer version replaces the old one; the panel and settings in %AppData%\SensorPanel are kept. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SensorPanel is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="SensorPanelIcon" SourceFile="$(var.AssetsDir)\SensorPanel.ico" />
+    <Property Id="ARPPRODUCTICON" Value="SensorPanelIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="SensorPanel" />
+    </StandardDirectory>
+
+    <!-- Everything dotnet publish produced, including plugins\. -->
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PayloadDir)\**" />
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="SensorPanelShortcut" Name="SensorPanel" Description="Live hardware sensor panels for small displays"
+                  Target="[INSTALLFOLDER]SensorPanel.exe" WorkingDirectory="INSTALLFOLDER" />
+        <!-- Windows Installer tracks shortcuts through a per-user value (the standard pattern, also for all-user installs). -->
+        <RegistryValue Root="HKCU" Key="Software\SensorPanel\Installer" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="SensorPanel">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <!-- Close a running SensorPanel (and wait for it) before its files are replaced or removed. Ignored when it isn't
+         installed or running. -->
+    <CustomAction Id="CloseRunningApp" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]SensorPanel.exe&quot; --exit" Execute="immediate" Return="ignore" />
+
+    <!-- On a real uninstall (not an upgrade), remove the Start with Windows task so it doesn't point at a missing file.
+         Runs with the installer's administrator rights. -->
+    <SetProperty Id="RemoveStartupTask" Value="&quot;[System64Folder]schtasks.exe&quot; /Delete /TN SensorPanel /F"
+                 Before="RemoveStartupTask" Sequence="execute" />
+    <CustomAction Id="RemoveStartupTask" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec64"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <!-- "Start SensorPanel when Windows starts" checkbox. Ticked for new installs; on an upgrade it follows the current
+         setting (whether the startup task exists), so turning it off earlier isn't undone. -->
+    <Property Id="EXISTINGSTARTUP">
+      <RegistrySearch Id="FindStartupTask" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree\SensorPanel"
+                      Name="Id" Type="raw" Bitness="always64" />
+    </Property>
+    <SetProperty Id="STARTWITHWINDOWS" Value="1" After="AppSearch" Sequence="both"
+                 Condition="EXISTINGSTARTUP OR NOT WIX_UPGRADE_DETECTED" />
+
+    <!-- Start SensorPanel when the install or upgrade finishes. The startup task belongs to the signed-in user, so
+         SensorPanel creates (or removes) it itself on this first start. -->
+    <CustomAction Id="LaunchAppWithStartup" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]SensorPanel.exe&quot; --enable-startup" Execute="immediate" Return="asyncNoWait" />
+    <CustomAction Id="LaunchAppWithoutStartup" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]SensorPanel.exe&quot; --disable-startup" Execute="immediate" Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="CloseRunningApp" Before="InstallValidate" Condition="Installed OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="RemoveStartupTask" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="LaunchAppWithStartup" After="InstallFinalize" Condition="NOT Installed AND NOT REMOVE AND STARTWITHWINDOWS" />
+      <Custom Action="LaunchAppWithoutStartup" After="LaunchAppWithStartup" Condition="NOT Installed AND NOT REMOVE AND NOT STARTWITHWINDOWS" />
+    </InstallExecuteSequence>
+
+    <!-- Installer window: a welcome screen with the startup checkbox, then the standard progress and finish screens. -->
+    <UI Id="SensorPanelUI">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Segoe UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+
+      <DialogRef Id="ErrorDlg" />
+      <DialogRef Id="FatalError" />
+      <DialogRef Id="FilesInUse" />
+      <DialogRef Id="MsiRMFilesInUse" />
+      <DialogRef Id="PrepareDlg" />
+      <DialogRef Id="ProgressDlg" />
+      <DialogRef Id="ResumeDlg" />
+      <DialogRef Id="UserExit" />
+
+      <Dialog Id="SensorPanelWelcomeDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" TabSkip="no" Text="!(loc.WelcomeDlgBitmap)" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="40" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Bigger}Welcome to SensorPanel Setup" />
+        <Control Id="Description" Type="Text" X="135" Y="62" Width="220" Height="90" Transparent="yes" NoPrefix="yes"
+                 Text="SensorPanel shows live CPU, GPU, memory and drive readings on a small USB or HDMI screen, with an editor to design the panel.&#13;&#10;&#13;&#10;Click Install to install SensorPanel [ProductVersion] in Program Files. Windows will ask for administrator approval." />
+        <Control Id="StartWithWindows" Type="CheckBox" X="135" Y="160" Width="220" Height="17"
+                 Property="STARTWITHWINDOWS" CheckBoxValue="1" Text="Start SensorPanel when Windows starts" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="Install">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
+
+      <InstallUISequence>
+        <Show Dialog="SensorPanelWelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+    <UIRef Id="WixUI_Common" />
+
+    <!-- SensorPanel artwork for the installer screens (rendered by make-installer-art.ps1). -->
+    <WixVariable Id="WixUIDialogBmp" Value="$(sys.SOURCEFILEDIR)dialog.bmp" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(sys.SOURCEFILEDIR)banner.bmp" />
+
+  </Package>
+</Wix>

@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+App/
+Installer/payload/
+Installer/out/
+
+# Editor and OS files
+.vs/
+*.user
+*.suo
+Thumbs.db

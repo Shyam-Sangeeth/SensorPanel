@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SensorPanel display plugin for AX206 USB screens. Bundled with SensorPanel (SensorPanel\build.ps1 builds it into
+       App\plugins\Ax206); it's also an example of a plugin that talks to hardware. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SensorPanel.Plugin.Ax206</AssemblyName>
+    <RootNamespace>SensorPanel.Plugin.Ax206</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SensorPanel provides the contract at run time, so don't copy it. -->
+    <ProjectReference Include="..\..\SensorPanel.Plugins\SensorPanel.Plugins.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SensorPanel display plugin that saves the panel as a PNG (also a simple example plugin). SensorPanel\build.ps1
+       builds it into App\plugins\ImageFile, as does this folder's build.ps1. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SensorPanel.Plugin.ImageFile</AssemblyName>
+    <RootNamespace>SensorPanel.Plugin.ImageFile</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SensorPanel provides the contract at run time, so don't copy it. -->
+    <ProjectReference Include="..\..\SensorPanel.Plugins\SensorPanel.Plugins.csproj">
+      <Private>false</Private>
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </ProjectReference>
+  </ItemGroup>
+
+</Project>
