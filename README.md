@@ -158,6 +158,14 @@ Requires the .NET 10 SDK.
   build plus the plugins. The version comes from `SensorPanel\SensorPanel.csproj`, or pass `-Version`.
   `Installer\make-installer-art.ps1` redraws the installer pictures.
 
+Scripts in `tools\` (run with `powershell -ExecutionPolicy Bypass -File tools\<script>.ps1`):
+
+| Script | What it does |
+|---|---|
+| `publish-release.ps1 -Notes <file.md>` | Builds the installer and publishes it as GitHub release `v<version>` (the version in `SensorPanel.csproj`), which is where the About tab gets updates. The commit must be pushed; uses git's stored GitHub sign-in. |
+| `test-update-check.ps1` | Builds a copy that calls itself 0.9.0 and checks that it finds the latest release, from the About tab and automatically after starting with the window closed. Installs nothing; your panel and settings are put back afterwards. |
+| `capture-screenshots.ps1` | Retakes the screenshots in `docs\` from the `App\` build (asks for administrator rights, so every sensor has a value). |
+
 | Folder | Contents |
 |---|---|
 | `SensorPanel\` | The app (WPF): editor, renderer, sensors, frame counter, HDMI display, plugin loader |
@@ -165,6 +173,7 @@ Requires the .NET 10 SDK.
 | `Plugins\Ax206\`, `Plugins\ImageFile\` | Display plugins |
 | `Ax206Tool\` | AX206 command-line test tool |
 | `Installer\` | WiX installer |
+| `tools\` | Release, update-test and screenshot scripts |
 | `docs\` | Screenshots for this README |
 
 ## Credits
