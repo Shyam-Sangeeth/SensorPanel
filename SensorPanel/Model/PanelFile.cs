@@ -43,7 +43,11 @@ public static class PanelFile
     public static PanelLayout Import(string path, string imageFolder, PanelLayout current)
     {
         if (!Path.GetExtension(path).Equals(Extension, StringComparison.OrdinalIgnoreCase))
-            return PanelImporter.Import(path, imageFolder, current);
+        {
+            var lcd = PanelImporter.Import(path, imageFolder, current);
+            lcd.DesignRotation = lcd.Rotation; // made for the rotation it has
+            return lcd;
+        }
 
         var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
         if (root?["format"]?.GetValue<string>() != "SensorPanel" || root["panel"] is not JsonObject panel)

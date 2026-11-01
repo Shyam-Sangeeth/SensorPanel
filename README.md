@@ -7,9 +7,10 @@ a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor
   <img src="docs/panel.png" width="320" alt="A sensor panel showing CPU and GPU power, clocks, voltages, load gauges and graphs, fan speeds, memory use, memory and drive temperatures, framerate, drive space and the time">
 </p>
 
-- **Panel editor**: text, sensor values, bars that change colour at limits you set, round gauges, history graphs and
-  pictures. Click to select, drag to move, arrow keys to nudge, undo/redo, and every setting in a properties panel. The
-  preview is sharp at any size and the display updates as you edit.
+- **Panel editor**: text, sensor values, bars that change colour at limits you set, round gauges, history graphs,
+  tables (e.g. the processes using the most CPU or GPU) and pictures, on one page or several that take turns on the
+  display. Click to select, drag to move, arrow keys to nudge, undo/redo, and every setting in a properties panel. The preview is sharp and the same size for any display, the
+  display updates as you edit, and a pop-out window shows it at the display's own resolution.
 - **Sensors**: CPU, GPU, motherboard, fans, pump, memory modules and drives through LibreHardwareMonitor; memory use,
   drive space, time and date from Windows; framerate of full-screen games and videos measured without injecting anything
   into them.
@@ -36,6 +37,8 @@ Build the installer (see [Building](#building)) and run `SensorPanel-<version>-x
 - has a "Start SensorPanel when Windows starts" checkbox (upgrades keep the current choice);
 - closes a running SensorPanel before upgrading or uninstalling. Uninstalling keeps your panel and settings.
 
+SensorPanel starts with an empty panel: design your own, or bring one in with **Import…** on the Settings tab.
+
 Later versions can be installed from SensorPanel itself (**About** tab), or by running a newer MSI over the old one.
 
 ## Using SensorPanel
@@ -43,18 +46,45 @@ Later versions can be installed from SensorPanel itself (**About** tab), or by r
 ### Editor
 
 The **Editor** tab has the item list, the preview and the properties of the selected item (or of the panel when nothing
-is selected).
+is selected). The preview is the same size for every display, from a 3.5" USB screen to a 4K monitor.
+
+The button in the preview's top-right corner opens the display in a window of its own at the display's resolution,
+pixel for pixel (scaled down only if it wouldn't fit on your screen). It shows what the display shows, including the
+pages as they switch.
 
 ![The Editor tab: the item list, the panel preview with live readings, and the panel's properties](docs/editor.png)
 
-- **Add item** (＋): text, sensor value, sensor with bar, gauge, graph or image.
+- **Add item** (＋): text, sensor value, sensor with bar, gauge, graph, table or image.
+- **Tables** have up to 20 rows and 6 columns. **Content** fills them with the top CPU or GPU processes (name and
+  usage, up to 10), or **Custom cells** lets you choose each cell: a sensor, or text when the sensor is "(none)".
+  **Column titles** and **Column widths** take values separated by `|` (e.g. `Process|CPU`, `200|60`); left empty,
+  process lists get titles of their own, and the columns after the first fit their contents while the first takes
+  the rest of the **Width**. Columns of numbers are right-aligned.
 - Click an item in the preview or the list to select it; drag to move it; arrow keys nudge it (Shift: 10 px). Click
   empty space to deselect.
 - **Duplicate**, **Delete**, **Bring forward** and **Send backward** (drawing order where items overlap) are under the
   selected item's name. Shortcuts: Ctrl+D, Delete, Ctrl+Z / Ctrl+Y.
-- The **Sensor** setting is a searchable list of every sensor with its live value: type words like "gpu temp".
+- The **Sensor** setting is a searchable list of every sensor with its live value: type words like "cpu clock" or
+  "gpu temp" (the kind of hardware counts, so "cpu" finds the processor's sensors).
 - **Decimals** sets digits after the point; -1 uses the sensor's usual format (voltages 3, power 2, others none).
 - Panel settings: background, rotation (for screens mounted sideways), backlight (0-7) and refresh interval.
+- **Designed for rotation** is the rotation the design was made for. Changing **Rotation** never moves your items or
+  cuts them off: the preview (and the pop-out window) turns the whole screen with the design on it, as if you turned
+  the screen itself. A tall panel designed for 90 and set to 0 shows as a wide screen with the panel on its side. The
+  screen's own picture stays the same. Arrow keys move items the way they point on the turned preview. An empty panel
+  follows the rotation you choose, so a landscape design can be started.
+
+**Pages**: a panel can have several pages, which the display shows in turn.
+
+- **Add page** adds an empty page, **Duplicate page** adds a copy of the one you're editing, and **Delete page** removes
+  it with its items (Undo brings it back). The page list under the preview chooses which page you edit. The status
+  line shows which page is on the display after the connection state (e.g. "Display connected: … · Page 2 / 3"),
+  changing as the pages switch.
+- New items go on the page you're editing. An item's **Page** setting moves it to another page, or to **Every page**
+  for things like a background picture or the time. Items on every page are marked "(every page)" in the item list.
+- **Switch page every (s)**, in the panel settings, sets how long each page stays on the display.
+- Choosing or changing a page puts it on the display straight away; the pages carry on switching from there.
+- Graphs keep recording while their page isn't shown.
 
 Changes save automatically to `%APPDATA%\SensorPanel` and show on the display straight away.
 
@@ -89,6 +119,12 @@ to open the window.
 
 - **Hardware**: [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). CPU, motherboard,
   fan and memory temperature sensors need PawnIO and administrator rights; GPU, drive and load sensors don't need PawnIO.
+- **CPU clock**: besides each core's clock, SensorPanel adds the fastest core and the average of all cores, and on CPUs
+  with P-cores and E-cores, the fastest of each. Imported panels' CPU clock uses the fastest core.
+- **Top processes**: the 10 processes using the most CPU and the 10 using the most GPU, with their usage. Processes
+  with the same name count together, like Task Manager's Apps view (a browser's many processes are one entry). CPU use
+  comes from Windows' process list, GPU use from its GPU Engine performance counters (as Task Manager's GPU column).
+  They're only measured while the panel shows one of them.
 - **Windows**: memory use, drive space, time (24-hour or 12-hour, with or without seconds), date.
 - **Framerate (full screen)** and **Frame time**: frames presented by the app covering a whole monitor (exclusive or
   borderless full screen), counted from Windows' own event tracing, the way Intel's PresentMon does. DirectX 9-12 is

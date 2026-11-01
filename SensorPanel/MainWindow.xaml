@@ -67,6 +67,7 @@
                                     <MenuItem Header="Sensor with bar" Tag="bar" Click="AddItem_Click" />
                                     <MenuItem Header="Gauge" Tag="gauge" Click="AddItem_Click" />
                                     <MenuItem Header="Graph" Tag="graph" Click="AddItem_Click" />
+                                    <MenuItem Header="Table" Tag="table" Click="AddItem_Click" />
                                     <MenuItem Header="Image" Tag="image" Click="AddItem_Click" />
                                 </ContextMenu>
                             </Button.ContextMenu>
@@ -77,6 +78,16 @@
                         <Button x:Name="RedoButton" Style="{StaticResource IconButton}" Click="Redo_Click" ToolTip="Redo (Ctrl+Y)" AutomationProperties.Name="Redo">
                             <TextBlock Text="&#xE7A6;" FontFamily="{StaticResource IconFont}" FontSize="15" />
                         </Button>
+
+                        <!-- Adding and removing pages (the page being edited is chosen under the preview). -->
+                        <Border Width="1" Height="22" Margin="6,0,12,6" VerticalAlignment="Center"
+                                Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <Button x:Name="AddPageButton" Content="Add page" Style="{StaticResource ToolButton}" Click="AddPage_Click"
+                                ToolTip="Add an empty page after the last one" />
+                        <Button x:Name="DuplicatePageButton" Content="Duplicate page" Style="{StaticResource ToolButton}" Click="DuplicatePage_Click"
+                                ToolTip="Add a copy of this page after it" />
+                        <Button x:Name="DeletePageButton" Content="Delete page" Style="{StaticResource ToolButton}" Click="DeletePage_Click"
+                                ToolTip="Delete this page and its items (items on every page stay)" />
                     </WrapPanel>
 
                     <Grid x:Name="EditorGrid" Grid.Row="1" SizeChanged="EditorGrid_SizeChanged">
@@ -119,27 +130,48 @@
                              panel (e.g. a large HDMI screen) scrolls instead. -->
                         <Border x:Name="PreviewCard" Grid.Column="1" Style="{StaticResource Card}" Padding="0" Margin="0,0,10,0"
                                 PreviewMouseLeftButtonDown="PreviewArea_MouseDown">
-                            <ScrollViewer x:Name="StageScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Focusable="False">
-                                <Grid x:Name="Stage" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="16">
-                                    <Grid.LayoutTransform>
-                                        <ScaleTransform x:Name="StageScale" ScaleX="1.5" ScaleY="1.5" />
-                                    </Grid.LayoutTransform>
-                                    <Image x:Name="PreviewImage" Stretch="Fill" SnapsToDevicePixels="True" />
-                                    <!-- Shown at the panel's size until the first frame (sensors take a moment to start). -->
-                                    <Border x:Name="PreviewLoading" Background="Black">
-                                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                            <ProgressBar IsIndeterminate="True" Width="140" Margin="0,0,0,10" />
-                                            <TextBlock Text="Loading sensors…" FontSize="10" Foreground="#B0B0B0" HorizontalAlignment="Center" />
-                                        </StackPanel>
-                                    </Border>
-                                    <Canvas x:Name="Overlay" Background="Transparent" ClipToBounds="True" Focusable="True"
-                                            MouseLeftButtonDown="Overlay_MouseLeftButtonDown" MouseMove="Overlay_MouseMove"
-                                            MouseLeftButtonUp="Overlay_MouseLeftButtonUp">
-                                        <Rectangle x:Name="SelectionBox" Stroke="{DynamicResource AccentFillColorDefaultBrush}"
-                                                   StrokeDashArray="3 2" StrokeThickness="0.6667" Visibility="Collapsed" IsHitTestVisible="False" />
-                                    </Canvas>
-                                </Grid>
-                            </ScrollViewer>
+                            <Grid>
+                                <!-- Below the pop-out button's strip; the preview shrinks if it would be taller than this. -->
+                                <ScrollViewer x:Name="StageScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Focusable="False"
+                                              Margin="0,36,0,0" SizeChanged="StageScroll_SizeChanged">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <Grid x:Name="Stage" HorizontalAlignment="Center" Margin="12">
+                                            <Grid.LayoutTransform>
+                                                <!-- Set in code: turned the way the screen shows the panel, and scaled so
+                                                     every display's preview is the same size. -->
+                                                <TransformGroup>
+                                                    <RotateTransform x:Name="StageTurn" />
+                                                    <ScaleTransform x:Name="StageScale" ScaleX="1.5" ScaleY="1.5" />
+                                                </TransformGroup>
+                                            </Grid.LayoutTransform>
+                                            <Image x:Name="PreviewImage" Stretch="Fill" SnapsToDevicePixels="True" />
+                                            <!-- Shown at the panel's size until the first frame (sensors take a moment to start). -->
+                                            <Border x:Name="PreviewLoading" Background="Black">
+                                                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                    <ProgressBar IsIndeterminate="True" Width="140" Margin="0,0,0,10" />
+                                                    <TextBlock Text="Loading sensors…" FontSize="10" Foreground="#B0B0B0" HorizontalAlignment="Center" />
+                                                </StackPanel>
+                                            </Border>
+                                            <Canvas x:Name="Overlay" Background="Transparent" ClipToBounds="True" Focusable="True"
+                                                    MouseLeftButtonDown="Overlay_MouseLeftButtonDown" MouseMove="Overlay_MouseMove"
+                                                    MouseLeftButtonUp="Overlay_MouseLeftButtonUp">
+                                                <Rectangle x:Name="SelectionBox" Stroke="{DynamicResource AccentFillColorDefaultBrush}"
+                                                           StrokeDashArray="3 2" StrokeThickness="0.6667" Visibility="Collapsed" IsHitTestVisible="False" />
+                                            </Canvas>
+                                        </Grid>
+                                        <!-- The page to edit (only when there are several). -->
+                                        <ComboBox x:Name="PageBox" MinWidth="110" HorizontalAlignment="Center" Margin="0,-4,0,12"
+                                                  AutomationProperties.Name="Page" ToolTip="The page to edit (it's also shown on the display)"
+                                                  SelectionChanged="PageBox_SelectionChanged" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                                <!-- In the card's top-right corner: the display at its own resolution, in a window of its own. -->
+                                <Button x:Name="PopoutButton" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,8,8,0" Padding="7,5"
+                                        Click="Popout_Click" ToolTip="Open the display in a window at its own resolution"
+                                        AutomationProperties.Name="Open display window">
+                                    <TextBlock Text="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="14" />
+                                </Button>
+                            </Grid>
                         </Border>
 
                         <!-- Properties -->

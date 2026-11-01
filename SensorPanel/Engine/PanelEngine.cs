@@ -45,6 +45,10 @@ public sealed class PanelEngine : IRenderSource, IDisposable
     private int _layoutChanged;
     private int _previewScalePercent = 100;
     private long _displayDueAt = long.MaxValue;
+    private volatile int _previewPage = 1;
+    private volatile int _displayPage = 1; // written by the render thread only
+    private int _requestedPage;
+    private long _pageDueAt = long.MaxValue;
 
     public PanelEngine(SensorHub sensors)
     {
@@ -104,19 +108,75 @@ public sealed class PanelEngine : IRenderSource, IDisposable
         }
     }
 
-    /// <summary>The panel's size in its rotated orientation.</summary>
+    private volatile bool _mirrorEnabled;
+    private double _mirrorScale = 1;
+
+    /// <summary>Raised on the render thread with the display's picture (the page on it, upright) while <see cref="MirrorEnabled"/>.</summary>
+    public event Action<BitmapSource>? MirrorFrameReady;
+
+    /// <summary>Whether to draw <see cref="MirrorFrameReady"/> frames (while the display window is open).</summary>
+    public bool MirrorEnabled
+    {
+        get => _mirrorEnabled;
+        set
+        {
+            _mirrorEnabled = value;
+            if (value) _renderWake.Set();
+        }
+    }
+
+    /// <summary>How large to draw the display window's picture: 1 is one screen pixel per panel pixel.</summary>
+    public double MirrorScale
+    {
+        get => Volatile.Read(ref _mirrorScale);
+        set
+        {
+            Volatile.Write(ref _mirrorScale, Math.Clamp(value, 0.25, 8));
+            _renderWake.Set();
+        }
+    }
+
+    /// <summary>The page the preview shows (from 1): the one being edited.</summary>
+    public int PreviewPage
+    {
+        get => _previewPage;
+        set
+        {
+            _previewPage = value;
+            _renderWake.Set();
+        }
+    }
+
+    /// <summary>The page on the display now (from 1).</summary>
+    public int DisplayPage => _displayPage;
+
+    /// <summary>Raised on the render thread when the display moves to another page.</summary>
+    public event Action<int>? DisplayPageChanged;
+
+    /// <summary>Puts <paramref name="page"/> on the display now; the pages carry on switching from there.</summary>
+    public void ShowPage(int page)
+    {
+        Volatile.Write(ref _requestedPage, page);
+        _renderWake.Set();
+    }
+
+    /// <summary>How far the preview is turned (clockwise degrees), see <see cref="PanelLayout.PreviewTurn"/>.</summary>
+    public int PreviewTurn => _layout.PreviewTurn;
+
+    /// <summary>The panel's size in the orientation it was designed for.</summary>
     public Size LogicalSize
     {
         get
         {
             var physical = _display.PanelSize ?? DefaultPanelSize;
-            return _layout.RotationDegrees is 90 or 270 ? new Size(physical.Height, physical.Width) : physical;
+            return _layout.DesignDegrees is 90 or 270 ? new Size(physical.Height, physical.Width) : physical;
         }
     }
 
     public void SetLayout(PanelLayout layout)
     {
         SensorMatcher.DimmSlots = PanelImporter.DimmSlots(layout);
+        _sensors.UseSensors(layout.SensorKeys());
         _layout = layout;
         Volatile.Write(ref _layoutChanged, 1);
         _renderWake.Set();
@@ -172,10 +232,12 @@ public sealed class PanelEngine : IRenderSource, IDisposable
                 bool sampled = Interlocked.Exchange(ref _sampled, 0) == 1;
                 if (sampled) Sample(layout);
                 if (Interlocked.Exchange(ref _layoutChanged, 0) == 1) _displayDueAt = now + DisplayCatchUpMs;
+                bool turned = TurnPage(layout, now);
+                if (turned) DisplayPageChanged?.Invoke(_displayPage);
 
-                // The display follows the sensor refresh, except while editing: then once changes pause.
+                // The display follows the sensor refresh and page changes, except while editing: then once changes pause.
                 bool editing = _displayDueAt != long.MaxValue;
-                bool sendDisplay = editing ? now >= _displayDueAt : sampled;
+                bool sendDisplay = editing ? now >= _displayDueAt : sampled || turned;
                 if (sendDisplay) _displayDueAt = long.MaxValue;
 
                 RenderFrames(layout, sendDisplay);
@@ -185,9 +247,42 @@ public sealed class PanelEngine : IRenderSource, IDisposable
                 StatusChanged?.Invoke("Error: " + ex.Message);
             }
 
-            long wait = _displayDueAt == long.MaxValue ? 2000 : _displayDueAt - Environment.TickCount64;
+            long due = Math.Min(_displayDueAt, _pageDueAt);
+            long wait = due == long.MaxValue ? 2000 : due - Environment.TickCount64;
             _renderWake.WaitOne((int)Math.Clamp(wait, 1, 2000));
         }
+    }
+
+    /// <summary>
+    /// Moves the display on to the next page when its time is up, or to the page the editor asked for (which then gets its
+    /// full time). Returns whether the page changed.
+    /// </summary>
+    private bool TurnPage(PanelLayout layout, long now)
+    {
+        int count = Math.Max(1, layout.PageCount);
+        int requested = Interlocked.Exchange(ref _requestedPage, 0);
+        long pageMs = Math.Clamp(layout.PageSeconds, 1, 3600) * 1000L;
+        int page = Math.Clamp(_displayPage, 1, count);
+        if (count == 1)
+            _pageDueAt = long.MaxValue;
+        else if (requested > 0)
+        {
+            page = Math.Clamp(requested, 1, count);
+            _pageDueAt = now + pageMs;
+        }
+        else if (_pageDueAt == long.MaxValue)
+            _pageDueAt = now + pageMs; // a second page was just added
+        else if (now >= _pageDueAt)
+        {
+            page = page % count + 1;
+            _pageDueAt = now + pageMs;
+        }
+        else
+            _pageDueAt = Math.Min(_pageDueAt, now + pageMs); // the time was just shortened
+
+        bool changed = page != _displayPage;
+        _displayPage = page;
+        return changed;
     }
 
     private void Sample(PanelLayout layout)
@@ -210,8 +305,15 @@ public sealed class PanelEngine : IRenderSource, IDisposable
         {
             double scale = PreviewScale;
             var bounds = new Dictionary<Guid, Rectangle>();
-            using var preview = PanelRenderer.Render(layout, size.Width, size.Height, this, bounds, scale);
+            int page = Math.Clamp(_previewPage, 1, Math.Max(1, layout.PageCount));
+            using var preview = PanelRenderer.Render(layout, page, size.Width, size.Height, this, bounds, scale);
             FrameReady?.Invoke(new PanelFrame(ToBitmapSource(preview), size, scale, bounds));
+        }
+        if (_mirrorEnabled)
+        {
+            int page = Math.Clamp(_displayPage, 1, Math.Max(1, layout.PageCount));
+            using var mirror = PanelRenderer.Render(layout, page, size.Width, size.Height, this, scale: MirrorScale);
+            MirrorFrameReady?.Invoke(ToBitmapSource(mirror));
         }
 
         if (!sendDisplay || !_display.IsConnected || _display.PanelSize is not { } physical) return;
@@ -222,8 +324,8 @@ public sealed class PanelEngine : IRenderSource, IDisposable
             return;
         }
 
-        using var bitmap = PanelRenderer.Render(layout, size.Width, size.Height, this);
-        bitmap.RotateFlip(layout.RotationDegrees switch
+        using var bitmap = PanelRenderer.Render(layout, _displayPage, size.Width, size.Height, this);
+        bitmap.RotateFlip(layout.DesignDegrees switch
         {
             90 => RotateFlipType.Rotate270FlipNone,
             180 => RotateFlipType.Rotate180FlipNone,

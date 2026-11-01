@@ -11,32 +11,38 @@ using SensorPanel.Sensors;
 namespace SensorPanel.UI;
 
 /// <summary>A sensor in the sensor picker.</summary>
-public sealed record SensorChoice(string Key, string Name, string Group, string Value)
+public sealed record SensorChoice(string Key, string Name, string Group, string Value, string Keywords = "")
 {
     public string Display => Group.Length > 0 ? $"{Group} › {Name}" : Name;
     public bool HasGroup => Group.Length > 0;
     public override string ToString() => Display;
 
-    /// <summary>Every word typed appears in the name, the hardware or the value.</summary>
+    /// <summary>Every word typed appears in the name, the hardware, the kind of hardware (e.g. "CPU") or the value.</summary>
     public bool Matches(string[] words) =>
         words.All(w => Display.Contains(w, StringComparison.CurrentCultureIgnoreCase) ||
+                       Keywords.Contains(w, StringComparison.CurrentCultureIgnoreCase) ||
                        Value.Contains(w, StringComparison.CurrentCultureIgnoreCase));
 }
 
 /// <summary>
 /// Builds the properties panel for an item (or the panel itself) from its <see cref="EditAttribute"/>s.
 /// <paramref name="beforeChange"/> runs before each change (for undo), <paramref name="afterChange"/> after it.
+/// <paramref name="pageCount"/> is the panel's number of pages.
 /// </summary>
-public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Action<string> beforeChange, Action afterChange)
+public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Func<int> pageCount, Action<string> beforeChange, Action afterChange)
 {
     private static List<string>? _fontNames;
 
     public void Build(Panel host, object target)
     {
         host.Children.Clear();
+        _host = host;
+        _builds++;
+        bool multiPage = pageCount() > 1;
         var props = target.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Select(p => (Prop: p, Edit: p.GetCustomAttribute<EditAttribute>()))
-            .Where(x => x.Edit != null && x.Prop.CanWrite)
+            .Where(x => x.Edit != null && x.Prop.CanWrite && (multiPage || !x.Edit.MultiPageOnly) &&
+                        (target is not IConditionalEdit conditional || conditional.Shows(x.Prop.Name)))
             .ToList();
 
         foreach (var group in props.GroupBy(x => x.Edit!.Group))
@@ -48,8 +54,22 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
                 Margin = new Thickness(0, host.Children.Count == 0 ? 0 : 14, 0, 6),
             });
             foreach (var (prop, edit) in group)
-                host.Children.Add(Row(target, prop, edit!));
+                host.Children.Add(edit!.Kind == EditKind.Cells && target is TableItem table ? CellsEditor(table) : Row(target, prop, edit));
         }
+    }
+
+    private Panel? _host;
+    private int _builds;
+
+    /// <summary>
+    /// Builds the panel again for <paramref name="target"/> (after a setting others depend on has changed), unless it has
+    /// been built for something else meanwhile (another item selected, undo).
+    /// </summary>
+    private void Rebuild(object target)
+    {
+        if (_host is not { } host) return;
+        int builds = _builds;
+        host.Dispatcher.BeginInvoke(() => { if (_builds == builds) Build(host, target); }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private FrameworkElement Row(object target, PropertyInfo prop, EditAttribute edit)
@@ -75,12 +95,15 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
 
     private FrameworkElement Editor(object target, PropertyInfo prop, EditAttribute edit)
     {
+        bool changed = false;
         void Set(object? value)
         {
             if (Equals(prop.GetValue(target), value)) return;
             beforeChange(prop.Name + target.GetHashCode());
             prop.SetValue(target, value);
             afterChange();
+            changed = true;
+            if (edit.Rebuilds && edit.Kind != EditKind.Number) Rebuild(target);
         }
 
         switch (edit.Kind)
@@ -93,7 +116,10 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
 
             case EditKind.Number:
             case EditKind.Decimal:
-                return NumberBox(prop, target, edit, Set);
+                var number = NumberBox(prop, target, edit, Set);
+                // Rebuild once typing is done, not at every key (the box would lose the focus).
+                if (edit.Rebuilds) number.LostKeyboardFocus += (_, _) => { if (changed) Rebuild(target); };
+                return number;
 
             case EditKind.Color:
                 return ColorEditor((string)prop.GetValue(target)!, Set);
@@ -109,6 +135,14 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
                 var choice = new ComboBox { ItemsSource = edit.Choices, SelectedItem = prop.GetValue(target) };
                 choice.SelectionChanged += (_, _) => { if (choice.SelectedItem is string c) Set(c); };
                 return choice;
+
+            case EditKind.Page:
+                // "Every page" is page 0, so the list index is the page number.
+                var pages = new List<string> { "Every page" };
+                for (int i = 1; i <= pageCount(); i++) pages.Add($"Page {i}");
+                var page = new ComboBox { ItemsSource = pages, SelectedIndex = Math.Clamp((int)prop.GetValue(target)!, 0, pages.Count - 1) };
+                page.SelectionChanged += (_, _) => { if (page.SelectedIndex >= 0) Set(page.SelectedIndex); };
+                return page;
 
             case EditKind.Sensor:
                 return SensorPicker((string)prop.GetValue(target)!, Set);
@@ -338,6 +372,50 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
         return panel;
     }
 
+    /// <summary>One line per cell, row by row: a sensor, or text when "(none)" is chosen.</summary>
+    private FrameworkElement CellsEditor(TableItem table)
+    {
+        table.AddMissingCells();
+        var panel = new StackPanel();
+        for (int r = 0; r < table.ShownRows; r++)
+        {
+            for (int c = 0; c < table.ShownColumns; c++)
+            {
+                var cell = table.Cells[r][c];
+                string id = $"cell{r},{c}" + table.GetHashCode();
+                var text = new TextBox { Text = cell.Text, Margin = new Thickness(0, 4, 0, 0), ToolTip = "Text to show (when no sensor is chosen)" };
+                text.Visibility = cell.Sensor.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+                text.TextChanged += (_, _) =>
+                {
+                    if (text.Text == cell.Text) return;
+                    beforeChange(id + "text");
+                    cell.Text = text.Text;
+                    afterChange();
+                };
+                var content = new StackPanel();
+                content.Children.Add(SensorPicker(cell.Sensor, value =>
+                {
+                    beforeChange(id);
+                    cell.Sensor = (string?)value ?? "";
+                    afterChange();
+                    text.Visibility = cell.Sensor.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+                }));
+                content.Children.Add(text);
+
+                var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition());
+                var label = new TextBlock { Text = $"Row {r + 1}, column {c + 1}", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 8, 0) };
+                label.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
+                Grid.SetColumn(content, 1);
+                grid.Children.Add(label);
+                grid.Children.Add(content);
+                panel.Children.Add(grid);
+            }
+        }
+        return panel;
+    }
+
     private static DataTemplate? _choiceTemplate;
 
     /// <summary>A sensor row: its name, the hardware it belongs to underneath, and the live value on the right.</summary>
@@ -370,7 +448,7 @@ public sealed class PropertyEditor(SensorHub sensors, IRenderSource values, Acti
             list.Add(new SensorChoice(current, SensorMatcher.Describe(current[SensorMatcher.Prefix.Length..]), "Matched automatically",
                                       PanelRenderer.Format(values, current, -1)));
         foreach (var s in sensors.Sensors)
-            list.Add(new SensorChoice(s.Key, s.Name, s.Group, PanelRenderer.Format(values, s.Key, -1) + (s.IsText ? "" : s.Unit)));
+            list.Add(new SensorChoice(s.Key, s.Name, s.Group, PanelRenderer.Format(values, s.Key, -1) + (s.IsText ? "" : s.Unit), s.Keywords));
         if (current.Length > 0 && list.All(c => c.Key != current))
             list.Add(new SensorChoice(current, current + " (not found)", "", ""));
         return list;

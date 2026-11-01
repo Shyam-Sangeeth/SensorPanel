@@ -5,8 +5,8 @@ using Microsoft.Win32;
 
 namespace SensorPanel.Sensors;
 
-/// <summary>A sensor the panel can show.</summary>
-public sealed record SensorInfo(string Key, string Group, string Name, string Unit, int Decimals, bool IsText = false)
+/// <summary>A sensor the panel can show. <paramref name="Keywords"/> are extra words search finds it by (e.g. "CPU").</summary>
+public sealed record SensorInfo(string Key, string Group, string Name, string Unit, int Decimals, bool IsText = false, string Keywords = "")
 {
     public string Display => $"{Group} › {Name}";
 }
@@ -36,6 +36,8 @@ public sealed class SensorHub : IDisposable
 
     private readonly object _gate = new();
     private readonly FrameCounter? _frames = FrameCounter.TryStart();
+    private readonly ProcessMonitor _processes = new();
+    private volatile bool _cpuProcessesUsed, _gpuProcessesUsed;
     private bool _opened;
     private volatile Snapshot _snapshot = new([], new Dictionary<string, Reading>(), []);
     private Dictionary<string, string?> _matchCache = [];
@@ -75,6 +77,22 @@ public sealed class SensorHub : IDisposable
         : null;
 
     public IReadOnlyList<SensorInfo> Sensors => _snapshot.Sensors;
+
+    /// <summary>
+    /// The sensors the panel shows. The top-process sensors are only measured while one of them is used; until then they're
+    /// listed without values.
+    /// </summary>
+    public void UseSensors(IEnumerable<string> keys)
+    {
+        bool cpu = false, gpu = false;
+        foreach (string key in keys)
+        {
+            cpu |= key.StartsWith("proc/cpu/", StringComparison.Ordinal);
+            gpu |= key.StartsWith("proc/gpu/", StringComparison.Ordinal);
+        }
+        _cpuProcessesUsed = cpu;
+        _gpuProcessesUsed = gpu;
+    }
 
     /// <summary>Raised on the engine thread when sensors appear or disappear.</summary>
     public event Action? SensorsChanged;
@@ -118,8 +136,12 @@ public sealed class SensorHub : IDisposable
         var sensors = new List<SensorInfo>();
         var values = new Dictionary<string, Reading>();
 
+        int cpuIndex = 0;
         foreach (var hw in _computer.Hardware)
+        {
             Collect(hw, hw.HardwareType, hardware, sensors, values);
+            if (hw.HardwareType == HardwareType.Cpu) AddCpuClocks(hw, cpuIndex++, sensors, values);
+        }
 
         AddBuiltIns(sensors, values);
 
@@ -136,7 +158,7 @@ public sealed class SensorHub : IDisposable
         if (ReportPath != null && (changed || Environment.TickCount64 - _lastReport > 60_000))
         {
             _lastReport = Environment.TickCount64;
-            WriteReport(ReportPath, hardware, values);
+            WriteReport(ReportPath, hardware, sensors, values);
         }
 
         // Which apps are drawing frames, and how each is seen (fps.txt, every second).
@@ -153,16 +175,19 @@ public sealed class SensorHub : IDisposable
     private long _lastReport;
     private long _lastFpsReport;
 
-    private static void WriteReport(string path, List<HardwareSensor> hardware, Dictionary<string, Reading> values)
+    private static void WriteReport(string path, List<HardwareSensor> hardware, List<SensorInfo> sensors, Dictionary<string, Reading> values)
     {
         try
         {
             var lines = new List<string> { $"SensorPanel sensors, {DateTime.Now:yyyy-MM-dd HH:mm:ss}", "Type | Hardware | Sensor | Key | Value", "" };
+            string Value(string key) => values.GetValueOrDefault(key) is var r && r.Text != null ? r.Text
+                                      : r.Value.HasValue ? r.Value.Value.ToString("0.###") : "-";
             foreach (var s in hardware)
-            {
-                var v = values.GetValueOrDefault(s.Key).Value;
-                lines.Add($"{s.HardwareType} | {s.HardwareName} | {s.Name} ({s.Type}) | {s.Key} | {(v.HasValue ? v.Value.ToString("0.###") : "-")}");
-            }
+                lines.Add($"{s.HardwareType} | {s.HardwareName} | {s.Name} ({s.Type}) | {s.Key} | {Value(s.Key)}");
+            // SensorPanel's own: combined CPU clocks, time, memory, drives, framerate.
+            var fromHardware = hardware.Select(s => s.Key).ToHashSet();
+            foreach (var s in sensors.Where(s => !fromHardware.Contains(s.Key)))
+                lines.Add($"SensorPanel | {s.Group} | {s.Name} | {s.Key} | {Value(s.Key)}");
             File.WriteAllLines(path, lines);
         }
         catch { }
@@ -177,7 +202,7 @@ public sealed class SensorHub : IDisposable
             string key = sensor.Identifier.ToString();
             if (values.ContainsKey(key)) continue;
             var (unit, decimals) = UnitFor(sensor.SensorType);
-            sensors.Add(new SensorInfo(key, hw.Name, $"{sensor.Name} ({sensor.SensorType})", unit, decimals));
+            sensors.Add(new SensorInfo(key, hw.Name, $"{sensor.Name} ({sensor.SensorType})", unit, decimals, Keywords: KeywordsFor(rootType)));
             values[key] = new Reading(sensor.Value);
             hardware.Add(new HardwareSensor(key, hw.HardwareType == HardwareType.SuperIO ? HardwareType.SuperIO : rootType,
                                             hw.Name, sensor.SensorType, sensor.Name));
@@ -185,6 +210,49 @@ public sealed class SensorHub : IDisposable
         foreach (var sub in hw.SubHardware)
             Collect(sub, rootType, hardware, sensors, values);
     }
+
+    /// <summary>
+    /// Single CPU clock figures, which LibreHardwareMonitor doesn't give (only each core's, and core #1 reads low whenever
+    /// it's idle): the fastest core and the average, and on CPUs with P-cores and E-cores, the fastest of each.
+    /// </summary>
+    private static void AddCpuClocks(IHardware cpu, int index, List<SensorInfo> sensors, Dictionary<string, Reading> values)
+    {
+        var cores = cpu.Sensors.Where(s => s.SensorType == SensorType.Clock &&
+                                           !s.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (cores.Count == 0) return;
+
+        void Add(string id, string name, IEnumerable<ISensor> from, bool average = false)
+        {
+            string key = $"/cpu-clock/{index}/{id}";
+            var readings = from.Where(s => s.Value.HasValue).Select(s => (double)s.Value!.Value).ToList();
+            sensors.Add(new SensorInfo(key, cpu.Name, name, " MHz", 0, Keywords: "CPU"));
+            values[key] = new Reading(readings.Count == 0 ? null : average ? readings.Average() : readings.Max());
+        }
+
+        Add("max", "CPU Clock, fastest core", cores);
+        Add("average", "CPU Clock, average", cores, average: true);
+        var performance = cores.Where(s => s.Name.StartsWith("P-Core", StringComparison.OrdinalIgnoreCase)).ToList();
+        var efficient = cores.Where(s => s.Name.StartsWith("E-Core", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (performance.Count > 0 && efficient.Count > 0)
+        {
+            Add("p-max", "P-Core Clock, fastest", performance);
+            Add("e-max", "E-Core Clock, fastest", efficient);
+        }
+    }
+
+    /// <summary>The kind of hardware in words people search for ("cpu clock" finds the cores' clocks).</summary>
+    private static string KeywordsFor(HardwareType type) => type switch
+    {
+        HardwareType.Cpu => "CPU",
+        HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel => "GPU",
+        HardwareType.Memory => "Memory RAM",
+        HardwareType.Motherboard or HardwareType.SuperIO => "Motherboard",
+        HardwareType.Storage => "Drive Storage",
+        HardwareType.Cooler => "Cooler",
+        HardwareType.Network => "Network",
+        HardwareType.Psu => "PSU Power supply",
+        _ => "",
+    };
 
     private static (string Unit, int Decimals) UnitFor(SensorType type) => type switch
     {
@@ -249,6 +317,24 @@ public sealed class SensorHub : IDisposable
         Add("fps/frametime", "Frame time (full screen)", " ms", fps > 0 ? 1000 / fps : 0, 1);
         if (rtss != null) Add("rtss/fps", "Framerate (RivaTuner)", " FPS", rtss.Value, 0);
 
+        // The processes using the most CPU and GPU (for tables), measured only while the panel shows them.
+        try { _processes.Update(_cpuProcessesUsed, _gpuProcessesUsed); } catch { }
+        AddProcesses("cpu", "CPU", _processes.TopCpu);
+        AddProcesses("gpu", "GPU", _processes.TopGpu);
+
+        void AddProcesses(string kind, string label, IReadOnlyList<(string Name, double Usage)> top)
+        {
+            for (int i = 0; i < ProcessMonitor.Count; i++)
+            {
+                bool has = i < top.Count;
+                string key = $"proc/{kind}/{i + 1}";
+                sensors.Add(new SensorInfo($"{key}/name", "Top processes", $"{label} process #{i + 1}", "", 0, IsText: true, Keywords: $"{label} process"));
+                values[$"{key}/name"] = has ? new Reading(null, top[i].Name) : Reading.None;
+                sensors.Add(new SensorInfo($"{key}/usage", "Top processes", $"{label} process #{i + 1} usage", "%", 1, Keywords: $"{label} process"));
+                values[$"{key}/usage"] = has ? new Reading(top[i].Usage) : Reading.None;
+            }
+        }
+
         void Add(string key, string name, string unit, object value, int decimals = 0)
         {
             string group = key.StartsWith("rtss", StringComparison.Ordinal) ? "RivaTuner"
@@ -263,6 +349,7 @@ public sealed class SensorHub : IDisposable
     public void Dispose()
     {
         _frames?.Dispose();
+        _processes.Dispose();
         try { _computer.Close(); } catch { }
     }
 

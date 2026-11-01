@@ -27,9 +27,10 @@ public static class PanelRenderer
 
     /// <summary>
     /// Draws the panel. <paramref name="scale"/> above 1 draws a sharper, larger copy (for the editor's preview); layout and
-    /// <paramref name="bounds"/> stay in panel pixels, so the result looks the same, only with more detail.
+    /// <paramref name="bounds"/> stay in panel pixels, so the result looks the same, only with more detail. Only the items
+    /// on <paramref name="page"/> are drawn.
     /// </summary>
-    public static Bitmap Render(PanelLayout layout, int width, int height, IRenderSource source,
+    public static Bitmap Render(PanelLayout layout, int page, int width, int height, IRenderSource source,
                                 Dictionary<Guid, Rectangle>? bounds = null, double scale = 1)
     {
         scale = Math.Clamp(scale, 0.25, 8);
@@ -47,7 +48,7 @@ public static class PanelRenderer
         using var fonts = new FontCache();
         try
         {
-            DrawItems(g, layout, source, bounds, fonts);
+            DrawItems(g, layout.OnPage(page), source, bounds, fonts);
         }
         finally
         {
@@ -58,10 +59,9 @@ public static class PanelRenderer
         return bitmap;
     }
 
-    private static void DrawItems(Graphics g, PanelLayout layout, IRenderSource source, Dictionary<Guid, Rectangle>? bounds, FontCache fonts)
+    private static void DrawItems(Graphics g, IEnumerable<PanelItem> items, IRenderSource source, Dictionary<Guid, Rectangle>? bounds, FontCache fonts)
     {
-
-        foreach (var item in layout.Items)
+        foreach (var item in items)
         {
             if (!item.Visible) continue;
             Rectangle area;
@@ -75,6 +75,7 @@ public static class PanelRenderer
                     GaugeItem gauge => DrawGauge(g, fonts.Get(gauge), gauge, source),
                     GraphItem graph => DrawGraph(g, fonts.Get(graph), graph, source),
                     ImageItem image => DrawImage(g, image),
+                    TableItem table => DrawTable(g, fonts.Get(table), fonts.Get(table, bold: true), table, source),
                     _ => Rectangle.Empty,
                 };
             }
@@ -281,6 +282,100 @@ public static class PanelRenderer
         return new Rectangle(item.X, item.Y, w, h);
     }
 
+    /// <summary>
+    /// A table: an optional header row in bold, then the cells. Columns holding numbers are right-aligned. Column widths
+    /// are as given, or the columns after the first fit their contents and the first takes the rest of the width.
+    /// </summary>
+    private static Rectangle DrawTable(Graphics g, Font font, Font bold, TableItem item, IRenderSource source)
+    {
+        int rows = item.ShownRows, columns = item.ShownColumns;
+        var cells = new string[rows, columns];
+        var numeric = new bool[columns];
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < columns; c++)
+            {
+                var (sensor, text) = item.Cell(r, c);
+                if (sensor.Length == 0)
+                {
+                    cells[r, c] = text;
+                    continue;
+                }
+                var reading = source.Read(sensor);
+                if (reading.Text != null) cells[r, c] = reading.Text;
+                else if (reading.Value.HasValue)
+                {
+                    cells[r, c] = Format(source, sensor, item.Decimals) + (item.ShowUnits ? source.Info(sensor)?.Unit ?? "" : "");
+                    numeric[c] = true;
+                }
+                else cells[r, c] = ""; // e.g. fewer busy processes than rows
+            }
+        }
+
+        string[] titles = item.Titles();
+        bool header = item.ShowHeader && titles.Any(t => t.Length > 0);
+        int Measure(Font f, string text) => text.Length == 0 ? 0 : TextRenderer.MeasureText(g, text, f, Size.Empty, TextFlags).Width;
+
+        // Column widths: as typed, otherwise fitted to the contents (the first column gets what's left).
+        const int gap = 8;
+        var typed = item.ColumnWidths.Split('|');
+        var widths = new int[columns];
+        for (int c = 1; c < columns; c++)
+        {
+            if (c < typed.Length && int.TryParse(typed[c].Trim(), out int w) && w > 0) { widths[c] = w; continue; }
+            int widest = header && c < titles.Length ? Measure(bold, titles[c]) : 0;
+            for (int r = 0; r < rows; r++) widest = Math.Max(widest, Measure(font, cells[r, c]));
+            widths[c] = widest + gap;
+        }
+        widths[0] = typed.Length > 0 && int.TryParse(typed[0].Trim(), out int first) && first > 0
+            ? first : Math.Max(gap, item.Width - widths.Skip(1).Sum());
+        int width = widths.Sum();
+
+        int lineHeight = TextRenderer.MeasureText(g, "Ag", font, Size.Empty, TextFlags).Height;
+        int rowHeight = lineHeight + item.RowSpacing;
+        using var line = item.ShowLines ? new Pen(ParseColor(item.LineColor)) : null;
+        int y = item.Y;
+
+        void DrawRow(Func<int, string> text, Font f, Color color)
+        {
+            int x = item.X;
+            for (int c = 0; c < columns; c++)
+            {
+                string fitted = Fit(g, f, text(c), widths[c] - (c < columns - 1 ? gap / 2 : 0));
+                int left = numeric[c] ? x + widths[c] - Measure(f, fitted) - (c < columns - 1 ? gap / 2 : 0) : x;
+                DrawText(g, f, fitted, left, y, color);
+                x += widths[c];
+            }
+            y += rowHeight;
+        }
+
+        if (header)
+        {
+            DrawRow(c => c < titles.Length ? titles[c] : "", bold, ParseColor(item.HeaderColor));
+            if (line != null) g.DrawLine(line, item.X, y - item.RowSpacing / 2 - 1, item.X + width - 1, y - item.RowSpacing / 2 - 1);
+        }
+        var color = ParseColor(item.Color);
+        for (int r = 0; r < rows; r++)
+        {
+            int row = r;
+            if (line != null && r > 0) g.DrawLine(line, item.X, y - item.RowSpacing / 2 - 1, item.X + width - 1, y - item.RowSpacing / 2 - 1);
+            DrawRow(c => cells[row, c], font, color);
+        }
+        return new Rectangle(item.X, item.Y, width, Math.Max(1, y - item.Y - item.RowSpacing));
+    }
+
+    /// <summary>The text, shortened with "…" if it's wider than <paramref name="width"/>.</summary>
+    private static string Fit(Graphics g, Font font, string text, int width)
+    {
+        if (text.Length == 0 || TextRenderer.MeasureText(g, text, font, Size.Empty, TextFlags).Width <= width) return text;
+        for (int n = text.Length - 1; n > 0; n--)
+        {
+            string shorter = text[..n].TrimEnd() + "…";
+            if (TextRenderer.MeasureText(g, shorter, font, Size.Empty, TextFlags).Width <= width) return shorter;
+        }
+        return "";
+    }
+
     // ---- helpers -----------------------------------------------------------------------------------------
 
     /// <summary>A 1-pixel frame just inside <paramref name="r"/> (also when drawing the larger preview).</summary>
@@ -343,9 +438,9 @@ public static class PanelRenderer
     {
         private readonly Dictionary<(string, double, FontStyle), Font> _fonts = [];
 
-        public Font Get(TextItem item)
+        public Font Get(TextItem item, bool bold = false)
         {
-            var style = (item.Bold ? FontStyle.Bold : 0) | (item.Italic ? FontStyle.Italic : 0);
+            var style = (item.Bold || bold ? FontStyle.Bold : 0) | (item.Italic ? FontStyle.Italic : 0);
             var key = (item.Font, item.FontSize, style);
             if (!_fonts.TryGetValue(key, out var font))
             {

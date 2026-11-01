@@ -73,7 +73,9 @@ internal static partial class SensorMatcher
                     ?? Find(hw, Cpu, SensorType.Temperature, "Core Average") ?? Find(hw, Cpu, SensorType.Temperature)
                     ?? Find(hw, Board, SensorType.Temperature, "CPU");
             case "SCPUCLK":
-                return Find(hw, Cpu, SensorType.Clock, "Core #1") ?? hw.FirstOrDefault(s => Cpu(s) && s.Type == SensorType.Clock &&
+                // The fastest core (core #1 alone reads low whenever it's idle).
+                return all.FirstOrDefault(s => s.Key == "/cpu-clock/0/max")?.Key
+                    ?? Find(hw, Cpu, SensorType.Clock, "Core #1") ?? hw.FirstOrDefault(s => Cpu(s) && s.Type == SensorType.Clock &&
                     !s.Name.Contains("Bus", StringComparison.OrdinalIgnoreCase))?.Key;
             case "VCPU":
                 return Find(hw, Board, SensorType.Voltage, "Vcore") ?? Find(hw, Board, SensorType.Voltage, "CPU Core")

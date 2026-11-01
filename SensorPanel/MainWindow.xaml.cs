@@ -18,13 +18,14 @@ using SensorPanel.UI;
 namespace SensorPanel;
 
 /// <summary>A row in the item list.</summary>
-public sealed class ItemRow(PanelItem item) : INotifyPropertyChanged
+public sealed class ItemRow(PanelItem item, bool multiPage) : INotifyPropertyChanged
 {
     private string _value = "";
 
     public PanelItem Item => item;
     public string Kind => item.KindName;
-    public string Title => item.Title.Length > 0 ? item.Title : "(empty)";
+    public string Title => (item.Title.Length > 0 ? item.Title : "(empty)") +
+                           (multiPage && item.Page == PanelItem.EveryPage ? " (every page)" : "");
     public double Opacity => item.Visible ? 1 : 0.45;
 
     public string Value
@@ -58,6 +59,7 @@ public partial class MainWindow : Window
 
     private PanelLayout _layout;
     private PanelItem? _selected;
+    private int _page = 1; // the page being edited
     private PanelFrame? _frame;
     private PanelFrame? _pendingFrame;
     private bool _syncingSelection;
@@ -82,13 +84,16 @@ public partial class MainWindow : Window
         _settings = settings;
         InitializeComponent();
 
-        _properties = new PropertyEditor(sensors, engine, Checkpoint, Commit);
+        _properties = new PropertyEditor(sensors, engine, () => _layout.PageCount, Checkpoint, Commit);
 
         // Reserve the panel's size so the loading placeholder matches it.
         var panelSize = engine.LogicalSize;
         PreviewImage.Width = panelSize.Width;
         PreviewImage.Height = panelSize.Height;
+        FitPreview(panelSize);
+        StageTurn.Angle = layout.PreviewTurn;
         ItemList.ItemsSource = _rows;
+        RebuildPageBar();
         RebuildRows();
         ShowProperties();
 
@@ -109,6 +114,7 @@ public partial class MainWindow : Window
         _valuesTimer.Start();
 
         engine.FrameReady += OnFrame;
+        engine.DisplayPageChanged += _ => Dispatcher.BeginInvoke(ShowDisplayPage);
         engine.StatusChanged += status => Dispatcher.BeginInvoke(() =>
         {
             ShowDisplayStatus(status);
@@ -121,7 +127,11 @@ public partial class MainWindow : Window
         ShowDisplaySettings(plugins);
 
         PreviewKeyDown += Window_PreviewKeyDown;
-        IsVisibleChanged += (_, _) => _engine.PreviewEnabled = IsVisible;
+        IsVisibleChanged += (_, _) =>
+        {
+            _engine.PreviewEnabled = IsVisible;
+            if (!IsVisible) _displayWindow?.Close();
+        };
         DpiChanged += (_, _) => UpdatePreviewScale();
         Loaded += (_, _) => UpdatePreviewScale();
         Closed += (_, _) => Save();
@@ -142,6 +152,7 @@ public partial class MainWindow : Window
             PreviewImage.Source = latest.Image;
             PreviewImage.Width = latest.PanelSize.Width;
             PreviewImage.Height = latest.PanelSize.Height;
+            FitPreview(latest.PanelSize);
             UpdateSelectionBox();
         });
     }
@@ -153,8 +164,14 @@ public partial class MainWindow : Window
     private void ShowDisplayStatus(string status)
     {
         _displayStatus = status;
-        if (_messageTimer?.IsEnabled != true) StatusText.Text = status;
+        if (_messageTimer?.IsEnabled != true) StatusText.Text = DisplayStatusLine();
     }
+
+    /// <summary>The connection state, and with several pages, the page on the display ("… · Page 2 / 3").</summary>
+    private string DisplayStatusLine() =>
+        _layout.PageCount > 1 && _engine.IsDisplayConnected && _settings.OutputEnabled
+            ? $"{_displayStatus} · Page {Math.Min(_engine.DisplayPage, _layout.PageCount)} / {_layout.PageCount}"
+            : _displayStatus;
 
     /// <summary>A message about something that just happened (import, export, an error); the display status comes back after 5 s.</summary>
     private void ShowStatus(string message)
@@ -166,7 +183,7 @@ public partial class MainWindow : Window
             _messageTimer.Tick += (_, _) =>
             {
                 _messageTimer.Stop();
-                StatusText.Text = _displayStatus;
+                StatusText.Text = DisplayStatusLine();
             };
         }
         _messageTimer.Stop();
@@ -250,7 +267,7 @@ public partial class MainWindow : Window
     {
         _syncingSelection = true;
         _rows.Clear();
-        foreach (var item in InPanelOrder()) _rows.Add(new ItemRow(item));
+        foreach (var item in InPanelOrder()) _rows.Add(new ItemRow(item, _layout.PageCount > 1));
         ItemList.SelectedItem = _rows.FirstOrDefault(r => r.Item == _selected);
         _syncingSelection = false;
         RefreshValues();
@@ -312,8 +329,9 @@ public partial class MainWindow : Window
     {
         bool has = _selected != null;
         ItemActions.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
-        int index = has ? _layout.Items.IndexOf(_selected!) : -1;
-        ForwardButton.IsEnabled = has && index < _layout.Items.Count - 1;
+        var onPage = _layout.OnPage(_page).ToList();
+        int index = has ? onPage.IndexOf(_selected!) : -1;
+        ForwardButton.IsEnabled = has && index >= 0 && index < onPage.Count - 1;
         BackwardButton.IsEnabled = has && index > 0;
         UndoButton.IsEnabled = _undo.Count > 0;
         RedoButton.IsEnabled = _redo.Count > 0;
@@ -334,20 +352,49 @@ public partial class MainWindow : Window
         _lastCheckpointTime = now;
     }
 
-    /// <summary>After a change: hand the panel to the engine, refresh the list and save soon.</summary>
-    /// <summary>Items in the order they appear on the panel: top to bottom, then left to right (not drawing order).</summary>
-    private IEnumerable<PanelItem> InPanelOrder() => _layout.Items.OrderBy(i => i.Y).ThenBy(i => i.X);
+    /// <summary>
+    /// The page's items in the order they appear on the panel: top to bottom, then left to right (not drawing order).
+    /// </summary>
+    private IEnumerable<PanelItem> InPanelOrder() => _layout.OnPage(_page).OrderBy(i => i.Y).ThenBy(i => i.X);
 
+    /// <summary>
+    /// After a change: hand the panel to the engine, refresh the list and save soon. The display shows the page being
+    /// edited.
+    /// </summary>
     private void Commit()
     {
+        // An empty panel is designed for whatever rotation is chosen (so a landscape panel can be started).
+        if (_layout.Items.Count == 0 && _layout.DesignRotation != _layout.Rotation)
+        {
+            _layout.DesignRotation = _layout.Rotation;
+            Dispatcher.BeginInvoke(ShowProperties, DispatcherPriority.Input);
+        }
+        TurnPreview();
+        // Follow the selected item when it's moved to another page; keep the page in range after undo.
+        if (_selected != null && _selected.Page != PanelItem.EveryPage) _page = _selected.Page;
+        _page = Math.Clamp(_page, 1, _layout.PageCount);
+        _engine.PreviewPage = _page;
         _engine.SetLayout(_layout.Clone());
+        _engine.ShowPage(_page);
+        bool pagesAdded = RebuildPageBar();
+        if (pagesAdded) ShowProperties(); // the page settings appear or disappear
         // Keep the list in panel order when items move (or appear/disappear).
-        if (!_rows.Select(r => r.Item).SequenceEqual(InPanelOrder())) RebuildRows();
+        if (pagesAdded || !_rows.Select(r => r.Item).SequenceEqual(InPanelOrder())) RebuildRows();
         foreach (var row in _rows) row.Refresh();
         if (_selected != null) PropertiesTitle.Text = $"{_selected.KindName}: {_selected.Title}";
         _saveTimer.Stop();
         _saveTimer.Start();
         UpdateButtons();
+    }
+
+    /// <summary>
+    /// Turns the preview (screen and design together) by the difference between the rotation and the one the design was
+    /// made for (none when they're the same).
+    /// </summary>
+    private void TurnPreview()
+    {
+        StageTurn.Angle = _layout.PreviewTurn;
+        if (!_previewPanel.IsEmpty) FitPreview(_previewPanel);
     }
 
     private void Restore(string json)
@@ -402,6 +449,7 @@ public partial class MainWindow : Window
             _lastCheckpoint = null;
             _layout = imported;
             _selected = null;
+            _page = 1;
             RebuildRows();
             ShowProperties();
             Commit();
@@ -450,10 +498,12 @@ public partial class MainWindow : Window
             "bar" => new BarItem { Sensor = "sys/memory-load", Label = "Memory", Unit = "%", UnitWidth = 12, Width = 200, BarWidth = 200 },
             "gauge" => new GaugeItem { Sensor = "sys/memory-load" },
             "graph" => new GraphItem { Sensor = "sys/memory-load" },
+            "table" => new TableItem(),
             _ => new ImageItem(),
         };
         item.X = 10;
         item.Y = 10;
+        item.Page = _page;
         Checkpoint("add");
         _lastCheckpoint = null;
         _layout.Items.Add(item);
@@ -467,8 +517,7 @@ public partial class MainWindow : Window
     private void Duplicate()
     {
         if (_selected == null) return;
-        var copy = PanelLayout.Deserialize(new PanelLayout { Items = [_selected] }.Serialize()).Items[0];
-        copy.Id = Guid.NewGuid();
+        var copy = Copy(_selected);
         copy.X += 6;
         copy.Y += 6;
         Checkpoint("duplicate");
@@ -496,27 +545,190 @@ public partial class MainWindow : Window
     private void Forward_Click(object sender, RoutedEventArgs e) => MoveLayer(+1);
     private void Backward_Click(object sender, RoutedEventArgs e) => MoveLayer(-1);
 
+    /// <summary>Draws the selected item over (or under) the next item on this page.</summary>
     private void MoveLayer(int delta)
     {
         if (_selected == null) return;
-        int index = _layout.Items.IndexOf(_selected);
-        int target = index + delta;
-        if (target < 0 || target >= _layout.Items.Count) return;
+        var onPage = _layout.OnPage(_page).ToList();
+        int target = onPage.IndexOf(_selected) + delta;
+        if (target < 0 || target >= onPage.Count) return;
         Checkpoint("layer");
-        _layout.Items.RemoveAt(index);
-        _layout.Items.Insert(target, _selected);
+        _layout.Items.Remove(_selected);
+        int other = _layout.Items.IndexOf(onPage[target]);
+        _layout.Items.Insert(delta > 0 ? other + 1 : other, _selected);
         RebuildRows();
         Commit();
     }
 
+    /// <summary>A copy of an item with a new ID.</summary>
+    private static PanelItem Copy(PanelItem item)
+    {
+        var copy = PanelLayout.Deserialize(new PanelLayout { Items = [item] }.Serialize()).Items[0];
+        copy.Id = Guid.NewGuid();
+        return copy;
+    }
+
+    // ---- pages ---------------------------------------------------------------------------------------------
+
+    private (int Count, int Page) _pageBar;
+
+    private bool _fillingPages;
+
     /// <summary>
-    /// The preview is shown at 150% and drawn at that size times Windows display scaling, so it's sharp.
+    /// Fills the page list (shown from two pages on) and the "Page 2 / 3" above the preview with the page being edited.
+    /// Returns whether the number of pages changed since last time.
     /// </summary>
+    private bool RebuildPageBar()
+    {
+        int count = _layout.PageCount;
+        if (_pageBar == (count, _page)) return false;
+        bool countChanged = _pageBar.Count != count && _pageBar.Count != 0;
+        _pageBar = (count, _page);
+
+        _fillingPages = true;
+        PageBox.ItemsSource = Enumerable.Range(1, count).Select(i => $"Page {i}").ToList();
+        PageBox.SelectedIndex = _page - 1;
+        _fillingPages = false;
+        ShowDisplayPage();
+
+        var multiPage = count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        PageBox.Visibility = multiPage;
+        if (!_previewPanel.IsEmpty) FitPreview(_previewPanel); // the page list takes room under the preview
+        DeletePageButton.Visibility = multiPage;
+        return countChanged;
+    }
+
+    /// <summary>Puts the page on the display in the status line (it changes as the pages switch).</summary>
+    private void ShowDisplayPage()
+    {
+        if (_messageTimer?.IsEnabled != true) StatusText.Text = DisplayStatusLine();
+    }
+
+    private void PageBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_fillingPages && PageBox.SelectedIndex >= 0 && PageBox.SelectedIndex + 1 != _page) GoToPage(PageBox.SelectedIndex + 1);
+    }
+
+    /// <summary>Edits another page, and shows it on the display (from there the pages switch as usual).</summary>
+    private void GoToPage(int page)
+    {
+        _page = Math.Clamp(page, 1, _layout.PageCount);
+        if (_selected != null && _selected.Page != PanelItem.EveryPage && _selected.Page != _page) _selected = null;
+        _engine.PreviewPage = _page;
+        _engine.ShowPage(_page);
+        RebuildPageBar();
+        RebuildRows();
+        ShowProperties();
+        UpdateSelectionBox();
+        UpdateButtons();
+    }
+
+    private void AddPage_Click(object sender, RoutedEventArgs e)
+    {
+        Checkpoint("add page");
+        _lastCheckpoint = null;
+        _layout.PageCount++;
+        _selected = null;
+        _page = _layout.PageCount;
+        Commit();
+        GoToPage(_page);
+    }
+
+    private void DuplicatePage_Click(object sender, RoutedEventArgs e)
+    {
+        Checkpoint("duplicate page");
+        _lastCheckpoint = null;
+        int source = _page, target = _page + 1;
+        foreach (var item in _layout.Items) if (item.Page >= target) item.Page++;
+        // Each copy goes right after its original, so the drawing order matches the original page.
+        var items = new List<PanelItem>();
+        foreach (var item in _layout.Items)
+        {
+            items.Add(item);
+            if (item.Page != source) continue;
+            var copy = Copy(item);
+            copy.Page = target;
+            items.Add(copy);
+        }
+        _layout.Items = items;
+        _layout.PageCount++;
+        _selected = null;
+        _page = target;
+        Commit();
+        GoToPage(target);
+    }
+
+    private void DeletePage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_layout.PageCount <= 1) return;
+        int page = _page;
+        Checkpoint("delete page");
+        _lastCheckpoint = null;
+        int removed = _layout.Items.RemoveAll(i => i.Page == page);
+        foreach (var item in _layout.Items) if (item.Page > page) item.Page--;
+        _layout.PageCount--;
+        if (_selected != null && !_layout.Items.Contains(_selected)) _selected = null;
+        _page = Math.Min(page, _layout.PageCount);
+        Commit();
+        GoToPage(_page);
+        ShowStatus(removed switch
+        {
+            0 => $"Deleted page {page}.",
+            1 => $"Deleted page {page} and its item. Undo brings it back.",
+            _ => $"Deleted page {page} and its {removed} items. Undo brings them back.",
+        });
+    }
+
+    // The preview's longer side: a 480-pixel display at 150%.
+    private const double PreviewSize = 720;
+
+    private System.Drawing.Size _previewPanel;
+
+    /// <summary>
+    /// Scales the preview so every display, small or large, is shown the same size, or smaller if the card isn't tall
+    /// enough (e.g. with the note at the top of the window).
+    /// </summary>
+    private void FitPreview(System.Drawing.Size panel)
+    {
+        _previewPanel = panel;
+        double scale = Math.Min(PreviewSize / panel.Width, PreviewSize / panel.Height);
+        double pageList = PageBox.Visibility == Visibility.Visible ? Math.Max(PageBox.ActualHeight, 32) + 8 : 0;
+        double room = StageScroll.ActualHeight - 24 - pageList; // the preview's margins and the page list
+        double shownHeight = _layout.PreviewTurn is 90 or 270 ? panel.Width : panel.Height; // when turned sideways
+        if (room > 100) scale = Math.Min(scale, room / shownHeight);
+        if (StageScale.ScaleX == scale) return;
+        StageScale.ScaleX = StageScale.ScaleY = scale;
+        SelectionBox.StrokeThickness = 1 / scale; // one screen pixel
+        UpdatePreviewScale();
+    }
+
+    private void StageScroll_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (!_previewPanel.IsEmpty) FitPreview(_previewPanel);
+    }
+
+    /// <summary>The preview is drawn at its shown size times Windows display scaling, so it's sharp.</summary>
     private void UpdatePreviewScale()
     {
         double dpi = PresentationSource.FromVisual(this) != null ? VisualTreeHelper.GetDpi(this).DpiScaleX : 1;
         _engine.PreviewScale = StageScale.ScaleX * dpi;
         RenderOptions.SetBitmapScalingMode(PreviewImage, BitmapScalingMode.HighQuality);
+    }
+
+    private DisplayWindow? _displayWindow;
+
+    /// <summary>Opens the display at its own resolution in a window of its own (or brings it back to the front).</summary>
+    private void Popout_Click(object sender, RoutedEventArgs e)
+    {
+        if (_displayWindow != null)
+        {
+            _displayWindow.WindowState = WindowState.Normal;
+            _displayWindow.Activate();
+            return;
+        }
+        _displayWindow = new DisplayWindow(_engine) { Owner = this };
+        _displayWindow.Closed += (_, _) => _displayWindow = null;
+        _displayWindow.Show();
     }
 
     private void OutputBox_Changed(object sender, RoutedEventArgs e)
@@ -820,9 +1032,10 @@ public partial class MainWindow : Window
         if (_frame == null) return null;
         // Top-most first. Prefer the selected item when it's under the pointer, so it can be dragged off things above it.
         if (_selected != null && _frame.Bounds.TryGetValue(_selected.Id, out var sel) && Contains(sel, p)) return _selected;
-        for (int i = _layout.Items.Count - 1; i >= 0; i--)
+        var onPage = _layout.OnPage(_page).ToList();
+        for (int i = onPage.Count - 1; i >= 0; i--)
         {
-            var item = _layout.Items[i];
+            var item = onPage[i];
             if (item.Visible && _frame.Bounds.TryGetValue(item.Id, out var r) && Contains(r, p)) return item;
         }
         return null;
@@ -842,7 +1055,8 @@ public partial class MainWindow : Window
     /// <summary>Clicking the preview area around the panel clears the selection.</summary>
     private void PreviewArea_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is DependencyObject source && IsInside(source, Overlay)) return; // the panel handles its own clicks
+        // The panel handles its own clicks; the pop-out button and the page list keep the selection.
+        if (e.OriginalSource is DependencyObject source && (IsInside(source, Overlay) || IsInside(source, PopoutButton) || IsInside(source, PageBox))) return;
         if (_selected != null) Select(null);
     }
 
@@ -937,6 +1151,14 @@ public partial class MainWindow : Window
             _ => (0, 0),
         };
         if (dx == 0 && dy == 0) return;
+        // Move the way the arrow points on the preview, also when it's shown turned.
+        (dx, dy) = _layout.PreviewTurn switch
+        {
+            90 => (dy, -dx),
+            180 => (-dx, -dy),
+            270 => (-dy, dx),
+            _ => (dx, dy),
+        };
         Checkpoint("nudge" + _selected.Id);
         _selected.X += dx;
         _selected.Y += dy;
