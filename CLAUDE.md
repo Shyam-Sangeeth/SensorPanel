@@ -17,7 +17,7 @@ guide; read it before changing behaviour.
   - `UI\`: the properties editor and the pop-out display window.
 - `SensorPanel.Plugins\`: the display plugin contract (`IDisplayDriver`, `IDisplay`, `DisplayFrame`).
 - `Plugins\Ax206`, `Plugins\ImageFile`: display plugins. `Ax206Tool\`: an AX206 command-line test tool.
-- `Installer\`: WiX 5 per-machine MSI. `tools\`: release, update-test and screenshot scripts. `docs\`: screenshots.
+- `Installer\`: WiX 5 per-machine MSI. `tools\`: release, test and screenshot scripts. `docs\`: screenshots.
 
 ## Building
 
@@ -69,7 +69,8 @@ guide; read it before changing behaviour.
   the startup task), then start the normal copy again.
 - To test drawing without the real screen, use the Picture file (PNG) display type writing to a scratch file.
 - Tests that touch the startup task: export it first (`Export-ScheduledTask -TaskName SensorPanel`) and put it back
-  with `schtasks /Create /TN SensorPanel /XML <file> /F`.
+  with `schtasks /Create /TN SensorPanel /XML <file> /F`. `tools\test-startup-task.ps1` covers the task's update,
+  crash restart and crash limit, and does this itself.
 - Non-elevated tools can't automate or screenshot the elevated window (UIPI); capture from an elevated script with
   PrintWindow.
 - Never click **Download and install** in a test: it installs into Program Files.
@@ -77,7 +78,10 @@ guide; read it before changing behaviour.
 
 ## Releasing
 
-1. Bump `<Version>` in `SensorPanel\SensorPanel.csproj`, commit and push.
+1. Update README.md (and CLAUDE.md if needed) for the change, bump `<Version>` in `SensorPanel\SensorPanel.csproj`,
+   commit and push. The script refuses to publish with uncommitted changes or an unpushed commit, and tags `HEAD`.
 2. `powershell -ExecutionPolicy Bypass -File tools\publish-release.ps1 -Notes <notes.md>` builds the MSI and publishes
-   GitHub release `v<version>` with it attached (GitHub CLI if installed, otherwise git's stored sign-in). The About
-   tab's updater needs the `vX.Y.Z` tag and the `.msi` asset, and checks it against GitHub's SHA-256 digest.
+   GitHub release `v<version>` with it attached (GitHub CLI if installed, otherwise git's stored sign-in). Pass
+   `-SkipBuild` to upload the MSI already in `Installer\out\` (e.g. one you installed and tested). The About tab's
+   updater needs the `vX.Y.Z` tag and the `.msi` asset, and checks it against GitHub's SHA-256 digest.
+3. A release is public: publish only when the maintainer asks.

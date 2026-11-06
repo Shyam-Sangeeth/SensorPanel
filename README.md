@@ -137,8 +137,9 @@ to open the window.
 
 ## Sensors
 
-- **Hardware**: [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). CPU, motherboard,
-  fan and memory temperature sensors need PawnIO and administrator rights; GPU, drive and load sensors don't need PawnIO.
+- **Hardware**: [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). CPU,
+  motherboard, fan and memory temperature sensors need PawnIO and administrator rights; GPU, drive and load sensors
+  don't need PawnIO.
 - **CPU clock**: besides each core's clock, SensorPanel adds the fastest core and the average of all cores, and on CPUs
   with P-cores and E-cores, the fastest of each. Imported panels' CPU clock uses the fastest core.
 - **Top processes**: the 10 processes using the most CPU and the 10 using the most GPU, with their usage. Processes
@@ -153,8 +154,8 @@ to open the window.
   (e.g. a game on another monitor); 0 when none is drawing.
 - **RivaTuner Statistics Server** (optional): when it's running, its framerate is offered as a sensor and fills in for
   full-screen apps the event tracing doesn't see.
-- Imported panels name sensors by ID (e.g. `TCPU`, `PGPU1`); they're matched to this PC's sensors automatically and shown
-  as "Matched automatically" in the sensor list. Pick another sensor to override a match.
+- Imported panels name sensors by ID (e.g. `TCPU`, `PGPU1`); they're matched to this PC's sensors automatically and
+  shown as "Matched automatically" in the sensor list. Pick another sensor to override a match.
 
 For troubleshooting, `%APPDATA%\SensorPanel\sensors.txt` lists every sensor with its value (every minute) and `fps.txt`
 shows which apps are drawing frames and how they're counted (every second). Unexpected errors go to `errors.log`. If
@@ -169,9 +170,9 @@ Error" or ".NET Runtime" entry for SensorPanel.exe.
 | **HDMI / DisplayPort screen** (built in) | Any screen Windows sees as a monitor. The panel is shown full screen on it in a window that stays on top, never takes focus and isn't in Alt+Tab or the taskbar. Use the monitor's resolution, or the size the panel was designed for and choose Fit or Stretch. Brightness dims the picture. |
 | **Picture file (PNG)** (plugin) | Saves the panel as a PNG whenever it changes, for OBS, Rainmeter or a web page. |
 
-Plugins live in the `plugins` folder next to SensorPanel (`C:\Program Files\SensorPanel\plugins` when installed), one
-subfolder each. Put a plugin's folder there and restart SensorPanel. Plugins run with SensorPanel's administrator rights,
-so only add ones you trust.
+Plugins live in the `plugins` folder next to SensorPanel (`C:\Program Files\SensorPanel\plugins` when installed),
+one subfolder each. Put a plugin's folder there and restart SensorPanel. Plugins run with SensorPanel's administrator
+rights, so only add ones you trust.
 
 ### Writing a display plugin
 
@@ -224,6 +225,7 @@ Scripts in `tools\` (run with `powershell -ExecutionPolicy Bypass -File tools\<s
 |---|---|
 | `publish-release.ps1 -Notes <file.md>` | Builds the installer and publishes it as GitHub release `v<version>` (the version in `SensorPanel.csproj`), which is where the About tab gets updates. The commit must be pushed; uses the GitHub CLI if it's installed, otherwise git's stored GitHub sign-in. |
 | `test-update-check.ps1` | Builds a copy that calls itself 0.9.0 and checks that it finds the latest release, from the About tab and automatically after starting with the window closed. Installs nothing; your panel and settings are put back afterwards. |
+| `test-startup-task.ps1` | Builds a test copy and checks Start with Windows: a copy the task doesn't start leaves it alone, a task from before 1.1.1 is updated, and after a crash SensorPanel starts again, until 3 crashes in 5 minutes show the "stopped" notice. Asks for administrator rights; your task, panel and settings are put back afterwards. |
 | `capture-screenshots.ps1` | Retakes the screenshots in `docs\` from the `App\` build (asks for administrator rights, so every sensor has a value). |
 
 | Folder | Contents |
@@ -233,7 +235,7 @@ Scripts in `tools\` (run with `powershell -ExecutionPolicy Bypass -File tools\<s
 | `Plugins\Ax206\`, `Plugins\ImageFile\` | Display plugins |
 | `Ax206Tool\` | AX206 command-line test tool |
 | `Installer\` | WiX installer |
-| `tools\` | Release, update-test and screenshot scripts |
+| `tools\` | Release, test and screenshot scripts |
 | `docs\` | Screenshots for this README |
 
 ## Credits
