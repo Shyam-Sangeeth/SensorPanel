@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
 using System.Security;
 
 namespace SensorPanel.Services;
@@ -7,13 +8,36 @@ namespace SensorPanel.Services;
 /// "Start with Windows" as a scheduled task that runs at sign-in with administrator rights (needed for the sensors), so
 /// there's no UAC prompt at every start. Creating or removing it needs administrator rights itself.
 /// The task also starts SensorPanel again after a crash (Windows logs an "Application Error" event for it). A crash can
-/// happen inside the graphics driver while it's being updated or reset, which .NET can't catch.
+/// happen inside the graphics driver while it's being updated or reset, which .NET can't catch. A copy that keeps
+/// crashing isn't started again forever: see <see cref="RecentCrashes"/>.
 /// </summary>
 public static class StartupTask
 {
     private const string TaskName = "SensorPanel";
 
     public static bool IsEnabled => Schtasks($"/Query /TN \"{TaskName}\"", out _) == 0;
+
+    /// <summary>How many times this copy of SensorPanel crashed in the last <paramref name="period"/> (0 if unknown).</summary>
+    public static int RecentCrashes(TimeSpan period)
+    {
+        try
+        {
+            string query = $"*[System[Provider[@Name='Application Error'] and EventID=1000 and TimeCreated[timediff(@SystemTime) <= " +
+                $"{(long)period.TotalMilliseconds}]]] and *[EventData[Data[@Name='AppPath']='{Environment.ProcessPath}']]";
+            using var reader = new EventLogReader(new EventLogQuery("Application", PathType.LogName, query));
+            int count = 0;
+            for (var record = reader.ReadEvent(); record != null; record = reader.ReadEvent())
+            {
+                record.Dispose();
+                count++;
+            }
+            return count;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 
     /// <summary>
     /// Recreates a task made by an older version (without the restart after a crash), if it starts this copy. A task that

@@ -14,6 +14,8 @@ public partial class App : Application
     private const string InstanceName = "SensorPanel.SingleInstance";
     private const string ShowEventName = "SensorPanel.ShowWindow";
     private const string ExitEventName = "SensorPanel.Exit";
+    private const int CrashLimit = 3;
+    private static readonly TimeSpan CrashPeriod = TimeSpan.FromMinutes(5);
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _showEvent;
@@ -62,6 +64,16 @@ public partial class App : Application
             running.Set();
             running.Dispose();
             Shutdown();
+            return;
+        }
+
+        // The startup task starts SensorPanel again after a crash. If this copy keeps crashing, stop there (with a notice)
+        // instead of starting it every few seconds forever. Starting it by hand still works.
+        if (e.Args.Contains("--minimized") && !e.Args.Contains("--restarted")
+            && StartupTask.RecentCrashes(CrashPeriod) is var crashes and >= CrashLimit)
+        {
+            Log($"Not started again: it crashed {crashes} times in {CrashPeriod.TotalMinutes:0} minutes.");
+            ShowStoppedNotice(crashes);
             return;
         }
 
@@ -157,6 +169,36 @@ public partial class App : Application
             ShowNotification($"SensorPanel {update.Version} is available", "Click to open SensorPanel and update.");
         };
         await _window.CheckForUpdatesAsync(quiet: true);
+    }
+
+    /// <summary>
+    /// Instead of starting after repeated crashes: a tray icon and a notification that say so. Clicking either starts
+    /// SensorPanel normally (with this copy's administrator rights, so there's no prompt).
+    /// </summary>
+    private void ShowStoppedNotice(int crashes)
+    {
+        using var iconStream = GetResourceStream(new Uri("pack://application:,,,/Assets/SensorPanel.ico"))!.Stream;
+        var tray = new Forms.NotifyIcon
+        {
+            Icon = new System.Drawing.Icon(iconStream, Forms.SystemInformation.SmallIconSize),
+            Text = "SensorPanel stopped after crashing",
+            ContextMenuStrip = new Forms.ContextMenuStrip(),
+            Visible = true,
+        };
+        void Close(bool start)
+        {
+            tray.Visible = false;
+            tray.Dispose();
+            if (start) Relaunch([], elevated: false);
+            Shutdown();
+        }
+        tray.ContextMenuStrip.Items.Add(new Forms.ToolStripMenuItem("Start SensorPanel", null, (_, _) => Close(start: true)));
+        tray.ContextMenuStrip.Items.Add(new Forms.ToolStripMenuItem("Close", null, (_, _) => Close(start: false)));
+        tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) Close(start: true); };
+        tray.BalloonTipClicked += (_, _) => Close(start: true);
+        tray.ShowBalloonTip(10_000, "SensorPanel stopped",
+            $"It closed unexpectedly {crashes} times in {CrashPeriod.TotalMinutes:0} minutes, so it wasn't started again. " +
+            "Click to start it.", Forms.ToolTipIcon.Warning);
     }
 
     private bool _trayShownForNotification;
@@ -281,12 +323,14 @@ public partial class App : Application
         return values;
     }
 
-    private static void LogError(Exception ex)
+    private static void LogError(Exception ex) => Log(ex.ToString());
+
+    private static void Log(string text)
     {
         try
         {
             Directory.CreateDirectory(PanelStore.Folder);
-            File.AppendAllText(Path.Combine(PanelStore.Folder, "errors.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {ex}{Environment.NewLine}{Environment.NewLine}");
+            File.AppendAllText(Path.Combine(PanelStore.Folder, "errors.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {text}{Environment.NewLine}{Environment.NewLine}");
         }
         catch { }
     }

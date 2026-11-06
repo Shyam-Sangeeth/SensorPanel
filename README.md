@@ -112,6 +112,9 @@ you sign in, about 5 seconds after, so the display works without opening anythin
 - The task also starts SensorPanel again about 15 seconds after it crashes. A crash can come from outside SensorPanel,
   for example inside the graphics driver while Windows updates it, and would otherwise leave the display blank until
   the next sign-in.
+- If SensorPanel crashes 3 times within 5 minutes, it isn't started again, so a crash at every start doesn't restart
+  it forever. A notification and a tray icon say so instead; click either (or **Start SensorPanel** in the tray icon's
+  menu) to start it, or start it from the Start menu.
 - The task starts the copy of SensorPanel it was turned on from. A task made by a version before 1.1.1 is updated the
   next time that copy starts as administrator.
 

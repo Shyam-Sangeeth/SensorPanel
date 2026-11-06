@@ -55,7 +55,8 @@ guide; read it before changing behaviour.
 - Start with Windows is the scheduled task "SensorPanel" (`Services\StartupTask.cs`). It has a sign-in trigger and an
   event trigger that starts SensorPanel again 15 s after an "Application Error" for it: an NVML call inside
   LibreHardwareMonitor can crash with an access violation (not catchable in .NET) while the graphics driver is
-  updated. The task starts whichever copy turned it on.
+  updated. The task starts whichever copy turned it on. A `--minimized` start (the task's) after 3 crashes of the same
+  exe path in 5 minutes shows a "stopped" tray notice instead of starting (`App.ShowStoppedNotice`).
 - LibreHardwareMonitor needs PawnIO installed properly (it checks PawnIO's uninstall entry) for CPU, motherboard and
   memory sensors.
 - WPF renders in software (`RenderMode.SoftwareOnly`); the GPU path drew an empty window on some PCs.
