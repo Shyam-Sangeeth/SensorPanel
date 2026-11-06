@@ -46,7 +46,9 @@ try {
     $gh = Get-Command gh -ErrorAction SilentlyContinue
     $gh = if ($gh) { $gh.Source } else { Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe' }
     if (Test-Path $gh) {
-        & $gh release view $tag --repo $repo --json url *> $null
+        # gh reports through exit codes; Windows PowerShell would otherwise stop at its messages on stderr.
+        $ErrorActionPreference = 'Continue'
+        & $gh release view $tag --repo $repo --json url 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { throw "$tag is already released." }
         Write-Host "Creating release $tag on $repo with the GitHub CLI..."
         & $gh release create $tag $msi --repo $repo --target $head --title "SensorPanel $version" --notes-file (Resolve-Path $Notes) --latest
