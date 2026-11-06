@@ -25,6 +25,7 @@ guide; read it before changing behaviour.
   named event `SensorPanel.Exit`; that works without administrator rights).
 - Test builds go to their own output folder so they don't clash with a running copy:
   `dotnet build SensorPanel\SensorPanel.csproj -c Release "-p:BaseOutputPath=obj\<name>\"`.
+- `Plugins\ImageFile\build.ps1` rebuilds only that plugin into `App\plugins\ImageFile` (restart SensorPanel after).
 - `Installer\build-installer.ps1` builds `Installer\out\SensorPanel-<version>-x64.msi` (self-contained, with plugins).
 - After building, `dotnet build-server shutdown` releases locks on the folder.
 - The plugin contract's `AssemblyVersion` is fixed at 1.0.0.0. Don't let a global `-p:Version` change it, or existing

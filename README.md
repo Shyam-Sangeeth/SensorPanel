@@ -190,7 +190,9 @@ rights, so only add ones you trust.
    the last frame, and `DisplayFrame.ToRgb565` converts to the 16-bit format most small LCDs use. Calls come from one
    background thread; throw from `Draw` when the display goes away and SensorPanel reconnects.
 
-`Plugins\ImageFile` is the simplest example; `Plugins\Ax206` drives real hardware.
+`Plugins\ImageFile` is the simplest example; `Plugins\Ax206` drives real hardware. `Plugins\ImageFile\build.ps1`
+builds just that plugin into `App\plugins\ImageFile` (restart SensorPanel afterwards); a copy with your plugin's name
+does the same for yours.
 
 ## The AX206 USB protocol
 
