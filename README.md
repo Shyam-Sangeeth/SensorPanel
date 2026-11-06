@@ -22,7 +22,8 @@ a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor
 
 - Windows 10 or 11, 64-bit.
 - Administrator rights: hardware sensors need them. SensorPanel asks when it starts; with "Start with Windows" it starts
-  without a prompt.
+  without a prompt. "Start with Windows" also starts SensorPanel again about 15 seconds after a crash, for example one
+  inside the graphics driver while Windows updates it.
 - For CPU, motherboard, fan and memory temperature sensors: the free [PawnIO](https://pawnio.eu) driver. SensorPanel
   offers to install it.
 - For AX206 USB screens: the libusb-win32 driver for the screen.

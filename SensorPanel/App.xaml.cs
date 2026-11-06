@@ -116,6 +116,11 @@ public partial class App : Application
             {
                 if (e.Args.Contains("--enable-startup")) StartupTask.Enable();
                 else if (e.Args.Contains("--disable-startup") && StartupTask.IsEnabled) StartupTask.Disable();
+                else Task.Run(() =>
+                {
+                    try { StartupTask.Update(); }
+                    catch (Exception ex) { LogError(ex); }
+                });
             }
             catch (Exception ex)
             {
