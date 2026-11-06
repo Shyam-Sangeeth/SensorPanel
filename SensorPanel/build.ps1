@@ -1,4 +1,4 @@
-# Builds SensorPanel into ..\App (the copy to run day to day) and adds a Start menu shortcut.
+# Builds SensorPanel into ..\App (a copy built from source; the installed copy is the one to run day to day).
 # Close SensorPanel first if it's running from ..\App (tray icon > Exit).
 param([string]$Output = (Join-Path $PSScriptRoot '..\App'))
 
@@ -17,18 +17,12 @@ foreach ($name in 'Ax206', 'ImageFile') {
     if ($LASTEXITCODE -ne 0) { throw "$name plugin build failed." }
 }
 
-# Named apart from the installer's "SensorPanel" shortcut, so Start search doesn't open this copy by mistake (and
-# "Start with Windows" ticked here moves the startup task to this copy).
+# No Start menu shortcut: the installed copy has one. Remove the ones older versions of this script made.
 $programs = [Environment]::GetFolderPath('Programs')
 $shell = New-Object -ComObject WScript.Shell
-$old = Join-Path $programs 'SensorPanel.lnk'
-if ((Test-Path $old) -and $shell.CreateShortcut($old).TargetPath -eq (Join-Path $Output 'SensorPanel.exe')) { Remove-Item $old }
-$shortcut = Join-Path $programs 'SensorPanel (App build).lnk'
-$link = $shell.CreateShortcut($shortcut)
-$link.TargetPath = Join-Path $Output 'SensorPanel.exe'
-$link.WorkingDirectory = $Output
-$link.Description = 'SensorPanel built from source (the App folder)'
-$link.Save()
+foreach ($name in 'SensorPanel.lnk', 'SensorPanel (App build).lnk') {
+    $old = Join-Path $programs $name
+    if ((Test-Path $old) -and $shell.CreateShortcut($old).TargetPath -eq (Join-Path $Output 'SensorPanel.exe')) { Remove-Item $old }
+}
 
 "SensorPanel is in $Output"
-"Start menu shortcut: $shortcut"

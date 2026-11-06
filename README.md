@@ -9,8 +9,9 @@ a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor
 
 - **Panel editor**: text, sensor values, bars that change colour at limits you set, round gauges, history graphs,
   tables (e.g. the processes using the most CPU or GPU) and pictures, on one page or several that take turns on the
-  display. Click to select, drag to move, arrow keys to nudge, undo/redo, and every setting in a properties panel. The preview is sharp and the same size for any display, the
-  display updates as you edit, and a pop-out window shows it at the display's own resolution.
+  display. Click to select, drag to move, arrow keys to nudge, undo/redo, and every setting in a properties panel.
+  The preview is sharp and the same size for any display, the display updates as you edit, and a pop-out window shows
+  it at the display's own resolution.
 - **Sensors**: CPU, GPU, motherboard, fans, pump, memory modules and drives through LibreHardwareMonitor; memory use,
   drive space, time and date from Windows; framerate of full-screen games and videos measured without injecting anything
   into them.
@@ -21,21 +22,23 @@ a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor
 ## Requirements
 
 - Windows 10 or 11, 64-bit.
-- Administrator rights: hardware sensors need them. SensorPanel asks when it starts; with "Start with Windows" it starts
-  without a prompt. "Start with Windows" also starts SensorPanel again about 15 seconds after a crash, for example one
-  inside the graphics driver while Windows updates it.
+- Administrator rights: hardware sensors need them. SensorPanel asks when it starts; with
+  [Start with Windows](#start-with-windows) it starts without a prompt.
 - For CPU, motherboard, fan and memory temperature sensors: the free [PawnIO](https://pawnio.eu) driver. SensorPanel
   offers to install it.
 - For AX206 USB screens: the libusb-win32 driver for the screen.
 
 ## Installing
 
-Build the installer (see [Building](#building)) and run `SensorPanel-<version>-x64.msi`. It:
+Download `SensorPanel-<version>-x64.msi` from the latest
+[release](https://github.com/Shyam-Sangeeth/SensorPanel/releases/latest) (or build it, see [Building](#building)) and
+run it. It:
 
 - installs for all users into `C:\Program Files\SensorPanel` (one administrator prompt) and includes everything it
   needs, so .NET doesn't have to be installed;
-- adds a Start menu shortcut and an entry in Settings → Apps;
-- has a "Start SensorPanel when Windows starts" checkbox (upgrades keep the current choice);
+- adds a "SensorPanel" Start menu shortcut and an entry in Settings → Apps;
+- has a "Start SensorPanel when Windows starts" checkbox, the same as [Start with Windows](#start-with-windows)
+  (upgrades keep the current choice);
 - closes a running SensorPanel before upgrading or uninstalling. Uninstalling keeps your panel and settings.
 
 SensorPanel starts with an empty panel: design your own, or bring one in with **Import…** on the Settings tab.
@@ -97,7 +100,20 @@ Changes save automatically to `%APPDATA%\SensorPanel` and show on the display st
 - **Display plugins**: what's installed, and a button to open the plugins folder.
 - **Panel file**: **Import…** opens a SensorPanel panel (`.sensorpanel`), an LCD backup (`.axlcd`) or an LCD settings
   file (`.ini`); **Export…** saves the panel and its pictures in one `.sensorpanel` file.
-- **General**: show on display, start with Windows, show tray icon, exit.
+- **General**: show on display, [start with Windows](#start-with-windows), show tray icon, exit.
+
+### Start with Windows
+
+With **Start with Windows** on (Settings tab, or the installer's checkbox), SensorPanel starts in the background when
+you sign in, about 5 seconds after, so the display works without opening anything.
+
+- It's a task in Task Scheduler named "SensorPanel", which runs SensorPanel with administrator rights, so there's no
+  prompt at sign-in. Turning the setting on or off needs SensorPanel to be running as administrator.
+- The task also starts SensorPanel again about 15 seconds after it crashes. A crash can come from outside SensorPanel,
+  for example inside the graphics driver while Windows updates it, and would otherwise leave the display blank until
+  the next sign-in.
+- The task starts the copy of SensorPanel it was turned on from. A task made by a version before 1.1.1 is updated the
+  next time that copy starts as administrator.
 
 ### About
 
@@ -138,7 +154,9 @@ to open the window.
   as "Matched automatically" in the sensor list. Pick another sensor to override a match.
 
 For troubleshooting, `%APPDATA%\SensorPanel\sensors.txt` lists every sensor with its value (every minute) and `fps.txt`
-shows which apps are drawing frames and how they're counted (every second). Unexpected errors go to `errors.log`.
+shows which apps are drawing frames and how they're counted (every second). Unexpected errors go to `errors.log`. If
+SensorPanel closes by itself, Windows records why in Event Viewer: **Windows Logs → Application**, an "Application
+Error" or ".NET Runtime" entry for SensorPanel.exe.
 
 ## Displays
 
@@ -190,8 +208,9 @@ command starting `0xCD`, then any data, then a 13-byte `"USBS"` status (last byt
 Requires the .NET 10 SDK.
 
 - `SensorPanel\build.ps1` builds SensorPanel and its plugins into `App\` (framework-dependent; needs the .NET 10
-  Desktop Runtime) and adds a "SensorPanel (App build)" Start menu shortcut, named apart from the installed copy's.
-  Exit SensorPanel first if it's running from `App\`.
+  Desktop Runtime), for trying changes without installing. It adds no Start menu shortcut; run `App\SensorPanel.exe`
+  directly, after exiting any other running copy. Turning on Start with Windows in this copy makes the sign-in task
+  start it instead of the installed one. To switch back, turn it off and on again in the installed copy, or reinstall.
 - `Installer\build-installer.ps1` builds `Installer\out\SensorPanel-<version>-x64.msi` with WiX 5: a self-contained
   build plus the plugins. The version comes from `SensorPanel\SensorPanel.csproj`, or pass `-Version`.
   `Installer\make-installer-art.ps1` redraws the installer pictures.
