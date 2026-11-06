@@ -5,8 +5,8 @@
 #   the current commit, which must be committed and pushed.
 # - Builds Installer\out\SensorPanel-<version>-x64.msi (unless -SkipBuild) and uploads it. The About tab looks for the
 #   latest release's .msi and checks it against the SHA-256 digest GitHub lists for it.
-# - Signs in to GitHub with the credentials git already uses for this repository (Git Credential Manager); the GitHub
-#   CLI isn't needed.
+# - Publishes with the GitHub CLI (gh) if it's installed and signed in. Without it, signs in to GitHub with the
+#   credentials git already uses for this repository (Git Credential Manager).
 param(
     [Parameter(Mandatory = $true)][string]$Notes,
     [switch]$SkipBuild
@@ -41,6 +41,21 @@ try {
     if (-not (Test-Path $msi)) { throw "$msi is missing (build it, or leave out -SkipBuild)." }
     $built = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $root 'Installer\payload\SensorPanel.dll')).Version
     if ("$($built.Major).$($built.Minor).$($built.Build)" -ne $version) { throw "The installer contains SensorPanel $built, not $version." }
+    $local = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+
+    $gh = Get-Command gh -ErrorAction SilentlyContinue
+    $gh = if ($gh) { $gh.Source } else { Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe' }
+    if (Test-Path $gh) {
+        & $gh release view $tag --repo $repo --json url *> $null
+        if ($LASTEXITCODE -eq 0) { throw "$tag is already released." }
+        Write-Host "Creating release $tag on $repo with the GitHub CLI..."
+        & $gh release create $tag $msi --repo $repo --target $head --title "SensorPanel $version" --notes-file (Resolve-Path $Notes) --latest
+        if ($LASTEXITCODE) { throw 'The GitHub CLI could not create the release.' }
+        $digest = & $gh api "repos/$repo/releases/tags/$tag" --jq '.assets[0].digest'
+        if ($digest -and $digest -ne "sha256:$local") { throw "The uploaded file's checksum ($digest) doesn't match $local." }
+        Write-Host "Installer checksum matches: $local"
+        return
+    }
 
     # The token git uses for github.com. Git only reads the request correctly from a file here (piped from Windows
     # PowerShell or .NET, it reports the protocol line missing).
@@ -70,7 +85,6 @@ try {
     $asset = Invoke-RestMethod "https://uploads.github.com/repos/$repo/releases/$($release.id)/assets?name=$name" -Method Post `
         -Headers $headers -ContentType 'application/x-msi' -InFile $msi
 
-    $local = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
     if ($asset.digest -and $asset.digest -ne "sha256:$local") { throw "The uploaded file's checksum ($($asset.digest)) doesn't match $local." }
     Write-Host "Released: $($release.html_url)"
     Write-Host "Installer: $($asset.browser_download_url)"

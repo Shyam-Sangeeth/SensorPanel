@@ -190,7 +190,8 @@ command starting `0xCD`, then any data, then a 13-byte `"USBS"` status (last byt
 Requires the .NET 10 SDK.
 
 - `SensorPanel\build.ps1` builds SensorPanel and its plugins into `App\` (framework-dependent; needs the .NET 10
-  Desktop Runtime) and adds a Start menu shortcut. Exit SensorPanel first if it's running from `App\`.
+  Desktop Runtime) and adds a "SensorPanel (App build)" Start menu shortcut, named apart from the installed copy's.
+  Exit SensorPanel first if it's running from `App\`.
 - `Installer\build-installer.ps1` builds `Installer\out\SensorPanel-<version>-x64.msi` with WiX 5: a self-contained
   build plus the plugins. The version comes from `SensorPanel\SensorPanel.csproj`, or pass `-Version`.
   `Installer\make-installer-art.ps1` redraws the installer pictures.
@@ -199,7 +200,7 @@ Scripts in `tools\` (run with `powershell -ExecutionPolicy Bypass -File tools\<s
 
 | Script | What it does |
 |---|---|
-| `publish-release.ps1 -Notes <file.md>` | Builds the installer and publishes it as GitHub release `v<version>` (the version in `SensorPanel.csproj`), which is where the About tab gets updates. The commit must be pushed; uses git's stored GitHub sign-in. |
+| `publish-release.ps1 -Notes <file.md>` | Builds the installer and publishes it as GitHub release `v<version>` (the version in `SensorPanel.csproj`), which is where the About tab gets updates. The commit must be pushed; uses the GitHub CLI if it's installed, otherwise git's stored GitHub sign-in. |
 | `test-update-check.ps1` | Builds a copy that calls itself 0.9.0 and checks that it finds the latest release, from the About tab and automatically after starting with the window closed. Installs nothing; your panel and settings are put back afterwards. |
 | `capture-screenshots.ps1` | Retakes the screenshots in `docs\` from the `App\` build (asks for administrator rights, so every sensor has a value). |
 

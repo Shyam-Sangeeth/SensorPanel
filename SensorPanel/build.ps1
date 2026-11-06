@@ -17,12 +17,17 @@ foreach ($name in 'Ax206', 'ImageFile') {
     if ($LASTEXITCODE -ne 0) { throw "$name plugin build failed." }
 }
 
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SensorPanel.lnk'
+# Named apart from the installer's "SensorPanel" shortcut, so Start search doesn't open this copy by mistake (and
+# "Start with Windows" ticked here moves the startup task to this copy).
+$programs = [Environment]::GetFolderPath('Programs')
 $shell = New-Object -ComObject WScript.Shell
+$old = Join-Path $programs 'SensorPanel.lnk'
+if ((Test-Path $old) -and $shell.CreateShortcut($old).TargetPath -eq (Join-Path $Output 'SensorPanel.exe')) { Remove-Item $old }
+$shortcut = Join-Path $programs 'SensorPanel (App build).lnk'
 $link = $shell.CreateShortcut($shortcut)
 $link.TargetPath = Join-Path $Output 'SensorPanel.exe'
 $link.WorkingDirectory = $Output
-$link.Description = 'Sensor panel for the AX206 USB display'
+$link.Description = 'SensorPanel built from source (the App folder)'
 $link.Save()
 
 "SensorPanel is in $Output"
