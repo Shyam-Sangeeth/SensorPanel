@@ -17,7 +17,8 @@ guide; read it before changing behaviour.
   - `UI\`: the properties editor and the pop-out display window.
 - `SensorPanel.Plugins\`: the display plugin contract (`IDisplayDriver`, `IDisplay`, `DisplayFrame`).
 - `Plugins\Ax206`, `Plugins\ImageFile`: display plugins. `Ax206Tool\`: an AX206 command-line test tool.
-- `Installer\`: WiX 5 per-machine MSI. `tools\`: release, test and screenshot scripts. `docs\`: screenshots.
+- `Installer\`: WiX 5 per-machine MSI. `tools\`: release, test and screenshot scripts. `docs\`: screenshots, and
+  `panel-demo.mp4`/`.webp` (a phone video of the real AX206 screen, re-encoded small with ffmpeg; no script makes it).
 
 ## Building
 

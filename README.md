@@ -5,6 +5,10 @@ a 3.5" USB display, an HDMI/DisplayPort screen or a picture file, with an editor
 
 <p align="center">
   <img src="docs/panel.png" width="320" alt="A sensor panel showing CPU and GPU power, clocks, voltages, load gauges and graphs, fan speeds, memory use, memory and drive temperatures, framerate, drive space and the time">
+  <a href="docs/panel-demo.mp4"><img src="docs/panel-demo.webp" width="288" alt="The panel running on a 3.5-inch AX206 USB screen inside a PC: readings and graphs update live, then the display turns to a second page listing the processes using the most CPU and GPU"></a>
+</p>
+<p align="center">
+  The panel in the editor (left) and on a 3.5" AX206 USB screen (right, <a href="docs/panel-demo.mp4">video</a>).
 </p>
 
 - **Panel editor**: text, sensor values, bars that change colour at limits you set, round gauges, history graphs,
